@@ -1,6 +1,41 @@
 @import 'tailwindcss';
 
-@theme {
+/*
+ * Cores da tela de comando. Tema claro suave por padrão (fundo cinza-claro, nada de branco puro,
+ * texto grafite em vez de preto). O escuro fica como opção nas Configurações.
+ * As janelas de saída não usam estas cores (o projetor é sempre preto).
+ */
+@theme static {
+  --color-fundo: #e9ecf0;
+  --color-painel: #f5f6f8;
+  --color-painel-2: #eceff3;
+  --color-borda: #d4d9e0;
+  --color-texto: #1f2733;
+  --color-suave: #586273;
+  --color-apagado: #8a93a2;
+  --color-destaque: #2f6bd0;
+  --color-destaque-texto: #1e4f9e;
+  --color-sobre-destaque: #ffffff;
+  --color-ok: #23864a;
+  --color-ok-texto: #1b6b3a;
+  --color-aviso: #d18a12;
+  --color-aviso-texto: #8a5806;
+  --color-sobre-aviso: #1c1405;
+  --color-perigo: #c8423b;
+  --color-perigo-texto: #a3302a;
+  --color-entrada: #fbfbfc;
+  --color-hover: #e2e6ec;
+  --color-interruptor: #c3cad3;
+  --color-tela: #0b0d12;
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+:root[data-tema='escuro'] {
+  color-scheme: dark;
   --color-fundo: #0e1014;
   --color-painel: #161920;
   --color-painel-2: #1d212a;
@@ -9,10 +44,19 @@
   --color-suave: #9ba3b1;
   --color-apagado: #6b7280;
   --color-destaque: #4f8cff;
+  --color-destaque-texto: #8db4ff;
+  --color-sobre-destaque: #ffffff;
   --color-ok: #22c55e;
+  --color-ok-texto: #4ade80;
   --color-aviso: #f5a524;
+  --color-aviso-texto: #f5a524;
+  --color-sobre-aviso: #1c1405;
   --color-perigo: #ef4444;
-  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --color-perigo-texto: #ff8a8a;
+  --color-entrada: #0f1217;
+  --color-hover: #252a35;
+  --color-interruptor: #343a46;
+  --color-tela: #05070a;
 }
 
 html,
@@ -23,12 +67,22 @@ body,
 }
 
 body {
-  background: var(--color-fundo);
-  color: var(--color-texto);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;
+}
+
+html[data-janela='comando'] body {
+  background: var(--color-fundo);
+  color: var(--color-texto);
+}
+
+html[data-janela='saida'] body,
+html[data-janela='audio'] body,
+html[data-janela='sonda'] body {
+  background: #000;
+  color: #fff;
 }
 
 input,
@@ -63,13 +117,18 @@ select {
   }
 }
 
-/* barra de rolagem discreta na tela de comando */
+/* controle deslizante vertical (volume no player recolhido) */
+input[type='range'].vertical {
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2f3a;
+  background: var(--color-borda);
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: padding-box;

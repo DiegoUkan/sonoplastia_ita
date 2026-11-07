@@ -14,6 +14,8 @@ export default defineConfig({
         input: {
           comando: resolve('src/renderer/comando.html'),
           saida: resolve('src/renderer/saida.html'),
+          audio: resolve('src/renderer/audio.html'),
+          sonda: resolve('src/renderer/sonda.html'),
         },
       },
     },

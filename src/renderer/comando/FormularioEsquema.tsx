@@ -2,10 +2,12 @@
  * Formulário gerado a partir de um esquema zod (via JSON Schema). Cada opção nova acrescentada em
  * src/shared/config.ts aparece aqui sem código extra.
  */
-import { ImageIcon, X } from 'lucide-react'
+import { FolderOpen, ImageIcon, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
+import type { VersaoBiblia } from '../../shared/dados'
 import { api } from '../compartilhado/ganchos'
-import { Botao, Interruptor, useRascunho } from './ui'
+import { Botao, classeEntrada, Deslizante, Interruptor, useRascunho } from './ui'
 
 interface PropJson {
   type?: string | string[]
@@ -14,7 +16,7 @@ interface PropJson {
   description?: string
   minimum?: number
   maximum?: number
-  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem'
+  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'versao-biblia' | 'pasta'
   'x-passo'?: number
   'x-opcoes'?: Record<string, string>
 }
@@ -76,40 +78,54 @@ function Campo({ prop, valor, aoMudar }: { prop: PropJson; valor: unknown; aoMud
   )
 }
 
-const classeEntrada =
-  'h-9 rounded-md border border-borda bg-[#0f1217] px-2.5 text-sm text-texto outline-none focus:border-destaque'
-
 function Controle({ prop, valor, aoMudar }: { prop: PropJson; valor: unknown; aoMudar: (v: unknown) => void }) {
   const tipo = tipoBase(prop)
   if (tipo === 'boolean') return <Interruptor ligado={Boolean(valor)} aoMudar={aoMudar} rotulo={prop.title} />
   if (prop.enum) {
     return (
-      <select
-        className={`${classeEntrada} w-72`}
-        value={String(valor)}
-        onChange={(e) => {
-          // sem foco, as setas do teclado e o passador de slides não mexem mais na opção
-          e.currentTarget.blur()
-          aoMudar(e.target.value)
-        }}
-      >
-        {prop.enum.map((o) => (
-          <option key={o} value={o}>
-            {prop['x-opcoes']?.[o] ?? o}
-          </option>
-        ))}
-      </select>
+      <Lista valor={String(valor)} aoMudar={aoMudar} opcoes={prop.enum.map((o) => ({ valor: o, rotulo: prop['x-opcoes']?.[o] ?? o }))} />
     )
   }
   if (tipo === 'number' || tipo === 'integer') return <ControleNumero prop={prop} valor={Number(valor)} aoMudar={aoMudar} />
-  if (prop['x-ui'] === 'cor') return <ControleCor valor={String(valor)} aoMudar={aoMudar} />
-  if (prop['x-ui'] === 'arquivo-imagem') return <ControleArquivoImagem valor={valor as string | null} aoMudar={aoMudar} />
-  return <ControleTexto valor={String(valor ?? '')} aoMudar={aoMudar} />
+  switch (prop['x-ui']) {
+    case 'cor':
+      return <ControleCor valor={String(valor)} aoMudar={aoMudar} />
+    case 'arquivo-imagem':
+      return <ControleArquivoImagem valor={valor as string | null} aoMudar={aoMudar} />
+    case 'dispositivo-audio':
+      return <ControleDispositivoAudio valor={String(valor ?? '')} aoMudar={aoMudar} />
+    case 'versao-biblia':
+      return <ControleVersaoBiblia valor={String(valor ?? '')} aoMudar={aoMudar} />
+    case 'pasta':
+      return <ControlePasta valor={String(valor ?? '')} aoMudar={aoMudar} titulo={prop.title ?? 'Escolher pasta'} />
+    default:
+      return <ControleTexto valor={String(valor ?? '')} aoMudar={aoMudar} />
+  }
 }
 
-function ControleTexto({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+/** Lista de opções que perde o foco depois da escolha (as setas e o passador não mexem mais nela). */
+function Lista({ valor, aoMudar, opcoes }: { valor: string; aoMudar: (v: string) => void; opcoes: Array<{ valor: string; rotulo: string }> }) {
+  return (
+    <select
+      className={`${classeEntrada} w-72`}
+      value={valor}
+      onChange={(e) => {
+        e.currentTarget.blur()
+        aoMudar(e.target.value)
+      }}
+    >
+      {opcoes.map((o) => (
+        <option key={o.valor} value={o.valor}>
+          {o.rotulo}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function ControleTexto({ valor, aoMudar, largura = 'w-72' }: { valor: string; aoMudar: (v: string) => void; largura?: string }) {
   const [v, setV] = useRascunho(valor, aoMudar)
-  return <input className={`${classeEntrada} w-72`} value={v} onChange={(e) => setV(e.target.value)} />
+  return <input className={`${classeEntrada} ${largura}`} value={v} onChange={(e) => setV(e.target.value)} />
 }
 
 function ControleNumero({ prop, valor, aoMudar }: { prop: PropJson; valor: number; aoMudar: (v: number) => void }) {
@@ -118,15 +134,7 @@ function ControleNumero({ prop, valor, aoMudar }: { prop: PropJson; valor: numbe
   if (prop['x-ui'] === 'deslizante' && prop.minimum !== undefined && prop.maximum !== undefined) {
     return (
       <>
-        <input
-          type="range"
-          className="w-48 accent-destaque"
-          min={prop.minimum}
-          max={prop.maximum}
-          step={passo}
-          value={v}
-          onChange={(e) => setV(Number(e.target.value))}
-        />
+        <Deslizante className="w-48" min={prop.minimum} max={prop.maximum} passo={passo} valor={v} aoMudar={setV} rotulo={prop.title} />
         <span className="w-12 text-right text-sm tabular-nums text-suave">{v}</span>
       </>
     )
@@ -172,7 +180,11 @@ function ControleArquivoImagem({ valor, aoMudar }: { valor: string | null; aoMud
   const nome = valor ? valor.split(/[\\/]/).pop() : null
   return (
     <>
-      {nome && <span className="max-w-48 truncate text-sm text-suave" title={valor ?? ''}>{nome}</span>}
+      {nome && (
+        <span className="max-w-48 truncate text-sm text-suave" title={valor ?? ''}>
+          {nome}
+        </span>
+      )}
       <Botao
         icone={ImageIcon}
         onClick={async () => {
@@ -185,4 +197,49 @@ function ControleArquivoImagem({ valor, aoMudar }: { valor: string | null; aoMud
       {valor && <Botao variante="fantasma" icone={X} onClick={() => aoMudar(null)} aria-label="Remover imagem" />}
     </>
   )
+}
+
+function ControlePasta({ valor, aoMudar, titulo }: { valor: string; aoMudar: (v: string) => void; titulo: string }) {
+  return (
+    <>
+      <ControleTexto valor={valor} aoMudar={aoMudar} largura="w-80" />
+      <Botao
+        icone={FolderOpen}
+        onClick={async () => {
+          const p = await api.escolherPasta(titulo)
+          if (p) aoMudar(p)
+        }}
+        title="Escolher pasta"
+      />
+    </>
+  )
+}
+
+function ControleDispositivoAudio({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+  const [dispositivos, setDispositivos] = useState<MediaDeviceInfo[]>([])
+  useEffect(() => {
+    const ler = () =>
+      navigator.mediaDevices
+        .enumerateDevices()
+        .then((d) => setDispositivos(d.filter((x) => x.kind === 'audiooutput' && x.deviceId !== 'default' && x.deviceId !== 'communications')))
+        .catch(() => setDispositivos([]))
+    ler()
+    navigator.mediaDevices.addEventListener('devicechange', ler)
+    return () => navigator.mediaDevices.removeEventListener('devicechange', ler)
+  }, [])
+  const opcoes = [{ valor: '', rotulo: 'Padrão do Windows' }, ...dispositivos.map((d, i) => ({ valor: d.deviceId, rotulo: d.label || `Saída de som ${i + 1}` }))]
+  if (valor && !dispositivos.some((d) => d.deviceId === valor)) opcoes.push({ valor, rotulo: 'Dispositivo desconectado' })
+  return <Lista valor={valor} aoMudar={aoMudar} opcoes={opcoes} />
+}
+
+function ControleVersaoBiblia({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+  const [versoes, setVersoes] = useState<VersaoBiblia[]>([])
+  useEffect(() => {
+    const ler = () => api.versoesBiblia().then(setVersoes)
+    ler()
+    return api.aoMudarBiblia(ler)
+  }, [])
+  const opcoes = [{ valor: '', rotulo: 'Nenhuma' }, ...versoes.map((v) => ({ valor: v.sigla, rotulo: `${v.sigla} — ${v.nome}` }))]
+  if (valor && !versoes.some((v) => v.sigla === valor)) opcoes.push({ valor, rotulo: `${valor} (não importada)` })
+  return <Lista valor={valor} aoMudar={aoMudar} opcoes={opcoes} />
 }

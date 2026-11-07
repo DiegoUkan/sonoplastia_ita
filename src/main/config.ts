@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { type Config, configPadrao, EsquemaConfig } from '../shared/config'
+import { completarPadroesDoPalco, type Config, configPadrao, EsquemaConfig } from '../shared/config'
 import { log } from './log'
 
 /** Lê e grava `config.json`. Emite 'mudou' com a configuração nova. */
@@ -19,7 +19,7 @@ export class ArmazemConfig extends EventEmitter {
       return this.atual
     }
     try {
-      const bruto = JSON.parse(readFileSync(this.arquivo, 'utf8'))
+      const bruto = completarPadroesDoPalco(JSON.parse(readFileSync(this.arquivo, 'utf8')))
       this.atual = EsquemaConfig.parse(bruto)
     } catch (e) {
       const copia = this.arquivo.replace(/\.json$/, `.invalido-${Date.now()}.json`)

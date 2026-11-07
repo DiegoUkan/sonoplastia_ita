@@ -6,7 +6,7 @@ import type { EstadoTelas, InfoSaida, MonitorAtual } from '../../shared/estado'
 import { api } from '../compartilhado/ganchos'
 import { FormularioEsquema } from './FormularioEsquema'
 import { SeloSituacao } from './PainelSaidas'
-import { Botao, Secao } from './ui'
+import { Botao, classeEntrada, Secao } from './ui'
 
 const referenciaDe = (m: MonitorAtual): MonitorRef => ({ id: m.id, rotulo: m.rotulo, largura: m.largura, altura: m.altura, x: m.x, y: m.y })
 
@@ -30,7 +30,7 @@ export function PaginaTelas({ config, salvar, telas }: { config: Config; salvar:
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
       {semMonitor && (
-        <div className="rounded-lg border border-destaque/40 bg-destaque/10 px-4 py-3 text-sm text-[#cfe0ff]">
+        <div className="rounded-lg border border-destaque/30 bg-destaque/8 px-4 py-3 text-sm text-destaque-texto">
           Escolha o monitor de cada saída. Depois disso, elas abrem sozinhas nos projetores sempre que o programa iniciar, e voltam
           sozinhas se o projetor for desligado e religado. Use <b>Identificar telas</b> para ver qual número é cada projetor.
         </div>
@@ -100,7 +100,7 @@ function SeletorMonitor({
   const valor = info?.monitorId != null ? String(info.monitorId) : noComando ? 'comando' : saida.monitor ? 'ausente' : ''
   return (
     <select
-      className="h-9 w-80 rounded-md border border-borda bg-[#0f1217] px-2.5 text-sm text-texto outline-none focus:border-destaque"
+      className={`${classeEntrada} w-80`}
       value={valor}
       onChange={(e) => {
         // tira o foco: senão as setas do teclado (ou o passador de slides) continuam trocando o monitor
@@ -152,7 +152,7 @@ function DiagramaMonitores({ telas, config }: { telas: EstadoTelas; config: Conf
             .filter((i) => i.monitorId === m.id)
             .map((i) => config.saidas.find((s) => s.id === i.saidaId)?.nome)
             .filter(Boolean)
-          const cor = m.principal ? 'border-suave/60 bg-white/5' : saidas.length ? 'border-destaque bg-destaque/15' : 'border-borda bg-painel-2'
+          const cor = m.principal ? 'border-suave/50 bg-painel-2' : saidas.length ? 'border-destaque bg-destaque/15' : 'border-borda bg-painel-2'
           return (
             <div
               key={m.id}

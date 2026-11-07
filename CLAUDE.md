@@ -54,6 +54,37 @@ saída).
 - **2026-11-07:** Git for Windows 2.56 instalado; repositório iniciado (ramo `main`, identidade
   "IASD Itaqui" só neste repositório), primeiro commit feito. Envio para um repositório privado no
   GitHub combinado com o usuário (login pela janela do Git Credential Manager, removido depois).
+- **2026-11-07 (noite): Fases 1, 2 e 3 implementadas + pedidos de interface.** Testado só com o
+  autoteste oculto e os testes (67 passando, inclusive com o Louvor JA e a ARA reais deste PC);
+  **ainda não visto nos projetores**. Feito:
+  - **Interface:** tema claro suave (padrão; escuro nas Configurações); player embaixo das miniaturas,
+    sempre visível (as miniaturas encolhem para caber); coluna lateral recolhível, que vira só o
+    player na vertical (tocar, parar, ±10 s, repetir, volume vertical, mudo); "Enviar para" (Público /
+    Palco / Todas) no topo das páginas de conteúdo.
+  - **Miniaturas ao vivo:** capturam a própria página de cada saída (`webContents.getMediaSourceId`
+    + `getUserMedia` com `chromeMediaSource: 'tab'`), reduzida na placa, sem decodificar o vídeo de
+    novo. Funciona até com a janela oculta (o autoteste confere o vídeo andando). Sem janela, mostra o
+    desenho de reserva (`Camadas` em escala). Aceitam arrastar mídia, música ou arquivo do Explorer.
+  - **Fase 1 — Mídias:** biblioteca em `C:\Sonoplastia\midias\<tipo>\` (cópia, sha256 contra
+    repetidos), janela oculta "sonda" que abre cada arquivo no Chromium (duração, tamanho, se toca,
+    miniatura JPEG), conversão automática pelo ffmpeg do que não toca (fila, prioridade baixa,
+    progresso), lixeira, renomear. Player com buscar, ±10 s, repetir, volume e mudo, para o vídeo de
+    cada saída e para a trilha de áudio. Escolha da saída de som (`setSinkId`). Palco não decodifica
+    vídeo: mostra nome + tempo que falta (opção "Mostrar vídeos nesta saída").
+  - **Fase 2 — Músicas:** importador do Louvor JA (SQLite em somente leitura; "Importar todas" ou
+    "Só a liturgia"); busca por título, nº do hino e trecho da letra (FTS5); cantado / playback /
+    manual; a **janela de áudio oculta** é o relógio: a cada 50 ms calcula o trecho pelo tempo do
+    áudio (antecipação configurável) e avisa o motor. Clicar num trecho pula o áudio para ele (ou para
+    de seguir o áudio, conforme a configuração). Palco com o próximo trecho e sem fundo. Editor de
+    letra e tempos com "marcar tempos" (Espaço). Passador: PageDown/PageUp.
+  - **Fase 3 — Bíblia:** importa as versões achadas no PC (projeto de transcrição e
+    `C:\Sonoplastia\biblias`), de arquivo .json ou de um endereço; 31 mil versículos em <1 s.
+    Referências digitadas ("jo 3 16", "1 co 13 4-7", "primeira aos coríntios 13", "jó 1"), livro
+    ambíguo pede escolha, palavras viram busca FTS. Versículo longo dividido em telas; segunda versão
+    junto; histórico; passador anda versículo a versículo e troca de capítulo.
+  - Texto que ajusta o tamanho sozinho (`TextoAjustado`, em % da altura da tela).
+  - Banco `C:\Sonoplastia\dados\sonoplastia.db` pelo **`node:sqlite` embutido no Electron 45**
+    (Node 24.22, SQLite 3.53 com FTS5): nenhum módulo nativo para compilar.
 
 ## Decisões
 
@@ -87,6 +118,15 @@ saída).
   controles que mudam com as setas (listas de opção) perdem o foco depois de usados.
 - Conteúdo novo tira "Limpar" e "Logo", mas **não** tira o Preto (só sai com comando explícito).
 - Mesmo vídeo em várias saídas: só a primeira solta o som.
+- Tema da tela de comando: **claro suave por padrão** (pedido do usuário: "que não cansa o olho");
+  cores só por tokens em `estilos.css` (`--color-*`), nunca cor fixa nos componentes.
+- Comandos de mídia são eventos com contador (`ordem`, `busca.seq`): quem toca reaplica mesmo sem
+  mudança de valor (ex.: tocar de novo um vídeo que terminou).
+- Mostrar outra coisa numa saída que estava com a letra da música: a música continua (áudio e as
+  outras saídas), mas para de atualizar aquela saída.
+- Palco por padrão: sem vídeo (só nome e tempo), música sem fundo e com o próximo trecho. Configs
+  antigas ganham esses padrões no Palco (`completarPadroesDoPalco`).
+- Controles deslizantes e listas largam o foco depois de usados (o passador de slides manda setas).
 
 ## PC da igreja (onde o programa vai rodar)
 
@@ -116,16 +156,23 @@ $env:SONOPLASTIA_DADOS = "<pasta temporária>\dados-teste"; $env:SONOPLASTIA_AUT
 npm run build; node_modules\electron\dist\electron.exe . --autoteste
 ```
 
-Gera PNGs de cada janela em cada passo e `relatorio.json` (telas, telemetria do vídeo, estado final).
-Janela oculta só pinta quando é capturada, por isso o autoteste captura duas vezes, e as transições
-CSS aparecem congeladas no meio. Isso não acontece nas janelas visíveis.
+Gera PNGs de cada janela em cada passo e `relatorio.json`. Passos: padrão de teste; vídeo (buscar
+para 30 s, miniaturas ao vivo andando); Bíblia (importa a ARA do projeto de transcrição e digita
+"jo 3 16" + Enter na página); música (importa do Louvor JA, toca cantado e confere a troca de trecho
+aos 8 s); biblioteca (importa e analisa um vídeo); coluna recolhida; emergência. Janela oculta só
+pinta quando é capturada, por isso o autoteste captura duas vezes, e as transições CSS aparecem
+congeladas no meio. Isso não acontece nas janelas visíveis.
 
 Cuidados descobertos:
 - O Electron 45 **não baixa o binário no `npm install`**. Rodar `node install.js` dentro de
   `node_modules\electron` (o `abrir.cmd` já faz isso).
-- O ffmpeg do Holyrics (`C:\Holyrics\Holyrics\files\ffmpeg.exe`) é de **2014**: não tem `testsrc2`, e o
-  `aac` precisa de `-strict -2`. Tem `libx264`. Na Fase 1, trazer um ffmpeg atual em `resources/`.
+- O ffmpeg usado (vídeo de teste e conversões) é o do Holyrics (`C:\Holyrics\Holyrics\files\ffmpeg.exe`),
+  de **2014**: não tem `testsrc2`, o `aac` precisa de `-strict -2`; tem `libx264` e `libmp3lame`. Um
+  `resources\ffmpeg.exe` tem prioridade, se for colocado lá.
+- Electron rodando como Node (`ELECTRON_RUN_AS_NODE=1`) só mostra a saída se ela for redirecionada
+  (`Start-Process -RedirectStandardOutput`).
 - `SONOPLASTIA_DADOS` troca a pasta de dados (padrão `C:\Sonoplastia`).
+- O `git` instalado depois não está no PATH do shell do Claude: usar `"C:\Program Files\Git\cmd\git.exe"`.
 
 **O Claude (app de desktop) roda num contêiner MSIX neste PC:** o que o shell do Claude grava em
 `AppData` vai para `%LOCALAPPDATA%\Packages\Claude_*\LocalCache`. Se instalar ou rodar algo pelo shell do
@@ -149,18 +196,25 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
    padrão de teste (círculo redondo, setas dos cantos visíveis, barra laranja lisa) e "Vídeo de teste
    1080p" em cada projetor, olhando a coluna "Quadros perdidos". Desligar e religar um projetor para
    ver a saída voltar sozinha. Fechar e abrir o programa para ver as saídas voltarem nos lugares.
-2. Enviar o repositório ao GitHub (se ainda não foi): o usuário cria um repositório privado vazio e
-   passa o endereço; `git remote add origin <endereço>` e `git push -u origin main`.
-3. **Fase 1** (`PLANO.md` §8): biblioteca de mídias, player completo, miniaturas com quadros reais do
-   vídeo e arrastar e soltar, regra do Palco para vídeo, ffmpeg atual em `resources/`.
+2. ~~Enviar ao GitHub~~ feito em 2026-11-07: `https://github.com/DiegoUkan/sonoplastia_ita` (ramo
+   `main`). O shell do Claude **não consegue pedir login** (contêiner MSIX): se o login salvo for
+   removido, enviar por um `.cmd` aberto com `explorer.exe`, que mostra a janela do GitHub.
+3. **Conferir as Fases 1–3 no PC de verdade** (fora do culto): Músicas → "Importar todas" (1.886
+   músicas), Bíblia → importar ARA e NVI, Mídias → arrastar alguns vídeos do Holyrics; tocar uma
+   música cantada e ver a letra trocar no projetor; escolher a saída de som (mesa) em Configurações.
+   Medir memória e CPU com tudo aberto (miniaturas ao vivo ligadas).
+4. Commit e envio ao GitHub das Fases 1–3 (o usuário decide).
+5. **Fase 4** (`PLANO.md` §5.4): apresentações PPTX (PowerPoint COM) e PDF.
 
-## Pendências conhecidas (Fase 0)
+## Pendências conhecidas
 
-- "Limpar" esconde o conteúdo, mas um vídeo continua tocando (com som) por baixo. Decidir na Fase 1
-  (opção "ao limpar: pausar o vídeo").
-- O texto ainda não ajusta o tamanho da fonte ao espaço (vem com as músicas, na Fase 2).
-- O pacote do renderer tem ~590 kB (React + ícones); não pesa porque carrega do disco, mas dá para
-  enxugar depois.
+- "Limpar" esconde o conteúdo, mas um vídeo continua tocando (com som) por baixo. Falta a opção
+  "ao limpar: pausar o vídeo" e o "ao terminar" do vídeo (preto / logo / congelar / próximo).
+- Biblioteca: ainda sem coleções/etiquetas; arrastar para a lixeira não existe (só o botão).
+- Bíblia: não há catálogo fixo para baixar versões (só arquivo ou endereço colado), porque não há uma
+  fonte confirmada; ver com o usuário.
+- Músicas: importar as que existem só no Holyrics ainda não foi feito.
+- O pacote do renderer tem ~600 kB (React + ícones); não pesa porque carrega do disco.
 
 ## Perguntas em aberto
 

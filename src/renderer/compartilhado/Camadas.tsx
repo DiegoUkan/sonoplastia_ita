@@ -1,13 +1,14 @@
 /**
  * Desenho de uma saída em camadas: fundo → conteúdo → sobreposições → logo/preto.
- * Usado pela janela de saída e, em escala, pelas miniaturas da tela de comando. Os tamanhos usam
- * unidades de contêiner (cqh/cqw), então a miniatura fica proporcional à saída real.
+ * Usado pela janela de saída e, em escala, pela miniatura de reserva da tela de comando. Os tamanhos
+ * usam unidades de contêiner (cqh/cqw), então a miniatura fica proporcional à saída real.
  */
 import { Film } from 'lucide-react'
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import type { Ajuste, ConfigSaida, ConfigTelaEspera } from '../../shared/config'
-import type { Conteudo, ControleVideo, EstadoSaida, Fundo, ModoTela, TelemetriaVideo } from '../../shared/estado'
+import type { Conteudo, ControleMidia, EstadoSaida, Fundo, ModoTela, TelemetriaVideo } from '../../shared/estado'
 import { urlMidia } from '../../shared/midia'
+import { TextoAjustado } from './TextoAjustado'
 
 const AJUSTE_CSS: Record<Ajuste, CSSProperties['objectFit']> = {
   ajustar: 'contain',
@@ -24,8 +25,11 @@ export interface PropsCamadas {
   resolucao: string
   /** na miniatura o vídeo não é decodificado de novo: mostra só nome e posição */
   miniatura?: boolean
+  /** posição do vídeo (de outra saída, quando esta não mostra vídeo) */
   telemetriaVideo?: TelemetriaVideo | null
   aoTelemetriaVideo?: (v: TelemetriaVideo | null) => void
+  /** dispositivo de som (deviceId) para o vídeo */
+  saidaAudio?: string
 }
 
 const COBRE_CONTEUDO: ModoTela[] = ['logo', 'preto']
@@ -53,12 +57,11 @@ function transicaoSobCobertura(tela: ModoTela, anterior: ModoTela, coberturas: M
 export function Camadas(p: PropsCamadas) {
   const { saida, config, transicaoMs: ms } = p
   const anterior = useTelaAnterior(saida.tela)
+  const ehTexto = saida.conteudo.tipo === 'letra' || saida.conteudo.tipo === 'versiculo'
+  const semFundo = saida.conteudo.tipo === 'letra' && !config.musicaComFundo
   return (
-    <div
-      className="relative h-full w-full overflow-hidden"
-      style={{ background: config.corFundo, containerType: 'size' }}
-    >
-      <CamadaFundo fundo={saida.fundo} ms={ms} />
+    <div data-tela className="relative h-full w-full overflow-hidden" style={{ background: config.corFundo, containerType: 'size' }}>
+      {!semFundo && <CamadaFundo fundo={saida.fundo} ms={ms} escurecer={ehTexto} />}
       <div
         className="absolute"
         style={{
@@ -72,13 +75,13 @@ export function Camadas(p: PropsCamadas) {
             <CamadaConteudo
               conteudo={conteudo}
               ativo={ativo}
-              ajuste={AJUSTE_CSS[config.ajuste]}
+              config={config}
               controle={saida.video}
-              nomeSaida={config.nome}
               resolucao={p.resolucao}
               miniatura={p.miniatura}
               telemetriaVideo={p.telemetriaVideo}
               aoTelemetriaVideo={p.aoTelemetriaVideo}
+              saidaAudio={p.saidaAudio}
             />
           )}
         </ConteudoComTransicao>
@@ -96,26 +99,27 @@ export function Camadas(p: PropsCamadas) {
 
 function Cortina({ visivel, transicao, children }: { visivel: boolean; transicao: string; children: ReactNode }) {
   return (
-    <div
-      className="pointer-events-none absolute inset-0"
-      style={{ opacity: visivel ? 1 : 0, transition: transicao }}
-    >
+    <div className="pointer-events-none absolute inset-0" style={{ opacity: visivel ? 1 : 0, transition: transicao }}>
       {children}
     </div>
   )
 }
 
-function CamadaFundo({ fundo, ms }: { fundo: Fundo; ms: number }) {
+function CamadaFundo({ fundo, ms, escurecer }: { fundo: Fundo; ms: number; escurecer: boolean }) {
   if (fundo.tipo === 'nenhum') return null
   return (
-    <img
-      key={fundo.url}
-      src={fundo.url}
-      alt=""
-      draggable={false}
-      className="absolute inset-0 h-full w-full"
-      style={{ objectFit: 'cover', animation: ms > 0 ? `entrar ${ms}ms ease both` : undefined }}
-    />
+    <>
+      <img
+        key={fundo.url}
+        src={fundo.url}
+        alt=""
+        draggable={false}
+        className="absolute inset-0 h-full w-full"
+        style={{ objectFit: 'cover', animation: ms > 0 ? `entrar ${ms}ms ease both` : undefined }}
+      />
+      {/* escurece um pouco o fundo atrás de letra e versículo, para o texto ficar legível */}
+      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,.35)', opacity: escurecer ? 1 : 0, transition: `opacity ${ms}ms ease` }} />
+    </>
   )
 }
 
@@ -126,12 +130,7 @@ interface ItemTransicao {
 }
 
 /** Mantém o conteúdo anterior enquanto ele esmaece e o novo aparece. */
-function ConteudoComTransicao(props: {
-  chave: number
-  conteudo: Conteudo
-  ms: number
-  children: (c: Conteudo, ativo: boolean) => ReactNode
-}) {
+function ConteudoComTransicao(props: { chave: number; conteudo: Conteudo; ms: number; children: (c: Conteudo, ativo: boolean) => ReactNode }) {
   const { chave, conteudo, ms } = props
   const [itens, setItens] = useState<ItemTransicao[]>(() => [{ chave, conteudo, saindo: false }])
   const ultimaChave = useRef(chave)
@@ -168,123 +167,194 @@ function ConteudoComTransicao(props: {
 interface PropsConteudo {
   conteudo: Conteudo
   ativo: boolean
-  ajuste: CSSProperties['objectFit']
-  controle: ControleVideo
-  nomeSaida: string
+  config: ConfigSaida
+  controle: ControleMidia
   resolucao: string
   miniatura?: boolean
   telemetriaVideo?: TelemetriaVideo | null
   aoTelemetriaVideo?: (v: TelemetriaVideo | null) => void
+  saidaAudio?: string
 }
+
+const sombraTexto = (ligada: boolean) => (ligada ? '0 0.35cqh 1.2cqh rgba(0,0,0,.85), 0 0 0.35cqh rgba(0,0,0,.9)' : 'none')
 
 function CamadaConteudo(p: PropsConteudo) {
   const c = p.conteudo
+  const cfg = p.config
   switch (c.tipo) {
     case 'vazio':
       return null
     case 'teste':
-      return <PadraoTeste nome={p.nomeSaida} resolucao={p.resolucao} />
+      return <PadraoTeste nome={cfg.nome} resolucao={p.resolucao} />
     case 'texto':
       return (
-        <div className="flex h-full w-full flex-col items-center justify-center text-center" style={{ padding: '6cqh 7cqw' }}>
-          <p
-            style={{
-              margin: 0,
-              fontSize: '8.5cqh',
-              lineHeight: 1.25,
-              fontWeight: 600,
-              color: '#fff',
-              whiteSpace: 'pre-line',
-              textShadow: '0 0.4cqh 1.4cqh rgba(0,0,0,.85)',
-            }}
-          >
-            {c.texto}
-          </p>
-          {c.referencia && (
-            <p style={{ margin: '3.5cqh 0 0', fontSize: '4.6cqh', color: 'rgba(255,255,255,.85)', fontWeight: 500 }}>
-              {c.referencia}
-            </p>
+        <div className="flex h-full w-full flex-col" style={{ padding: '6cqh 7cqw' }}>
+          <div className="min-h-0 flex-1">
+            <TextoAjustado
+              chave={c.texto}
+              maxPct={cfg.textoTamanhoMax}
+              estilo={{ textAlign: 'center', fontWeight: 600, lineHeight: 1.25, color: '#fff', whiteSpace: 'pre-line', textShadow: sombraTexto(cfg.textoSombra) }}
+            >
+              {c.texto}
+            </TextoAjustado>
+          </div>
+          {c.referencia && <Referencia texto={c.referencia} sombra={cfg.textoSombra} />}
+        </div>
+      )
+    case 'letra': {
+      const caixa = cfg.textoMaiusculas ? 'uppercase' : 'none'
+      const intro = c.indice < 0
+      return (
+        <div className="flex h-full w-full flex-col" style={{ padding: '5cqh 6cqw' }}>
+          <div className="min-h-0 flex-1">
+            <TextoAjustado
+              chave={c.texto}
+              maxPct={cfg.textoTamanhoMax}
+              estilo={{
+                textAlign: 'center',
+                fontWeight: intro ? 600 : 700,
+                lineHeight: 1.2,
+                color: intro ? 'rgba(255,255,255,.92)' : '#fff',
+                whiteSpace: 'pre-line',
+                textShadow: sombraTexto(cfg.textoSombra),
+                textTransform: caixa,
+              }}
+            >
+              {c.texto}
+            </TextoAjustado>
+          </div>
+          {cfg.musicaMostrarProximo && c.proximo && (
+            <div style={{ height: '19cqh', marginTop: '2cqh', borderTop: '0.3cqh solid rgba(255,255,255,.25)', paddingTop: '1.5cqh' }}>
+              <TextoAjustado
+                chave={c.proximo}
+                maxPct={6.5}
+                estilo={{ textAlign: 'center', fontWeight: 600, lineHeight: 1.2, color: 'rgba(255,255,255,.6)', whiteSpace: 'pre-line', textTransform: caixa }}
+              >
+                {c.proximo}
+              </TextoAjustado>
+            </div>
           )}
         </div>
       )
+    }
+    case 'versiculo':
+      return (
+        <div className="flex h-full w-full flex-col" style={{ padding: '5cqh 6cqw' }}>
+          <div className="min-h-0 flex-1">
+            <TextoAjustado
+              chave={c.texto + (c.segundo?.texto ?? '')}
+              maxPct={cfg.textoTamanhoMax}
+              estilo={{
+                textAlign: 'center',
+                fontWeight: 600,
+                lineHeight: 1.3,
+                color: '#fff',
+                textShadow: sombraTexto(cfg.textoSombra),
+                textTransform: cfg.textoMaiusculas ? 'uppercase' : 'none',
+              }}
+            >
+              {c.texto}
+              {c.segundo && (
+                <span style={{ display: 'block', marginTop: '0.7em', fontSize: '0.82em', color: 'rgba(255,255,255,.82)' }}>{c.segundo.texto}</span>
+              )}
+            </TextoAjustado>
+          </div>
+          <Referencia texto={c.segundo ? `${c.referencia} · ${c.segundo.referencia}` : c.referencia} sombra={cfg.textoSombra} />
+        </div>
+      )
     case 'imagem':
-      return <img src={c.url} alt="" draggable={false} className="h-full w-full" style={{ objectFit: p.ajuste }} />
+      return <img src={c.url} alt="" draggable={false} className="h-full w-full" style={{ objectFit: AJUSTE_CSS[cfg.ajuste] }} />
     case 'video':
-      if (p.miniatura) return <VideoNaMiniatura nome={c.nome} telemetria={p.telemetriaVideo} />
+      if (p.miniatura || !cfg.mostrarVideo) return <VideoResumido nome={c.nome} telemetria={p.telemetriaVideo} />
       return (
         <VideoSaida
           url={c.url}
-          loop={c.loop}
-          ajuste={p.ajuste}
+          ajuste={AJUSTE_CSS[cfg.ajuste]}
           controle={p.controle}
           ativo={p.ativo}
           aoTelemetria={p.aoTelemetriaVideo}
+          saidaAudio={p.saidaAudio}
         />
       )
   }
 }
 
-function VideoSaida(p: {
-  url: string
-  loop: boolean
-  ajuste: CSSProperties['objectFit']
-  controle: ControleVideo
-  ativo: boolean
-  aoTelemetria?: (v: TelemetriaVideo | null) => void
-}) {
-  const ref = useRef<HTMLVideoElement>(null)
-  const { controle, ativo, aoTelemetria } = p
+function Referencia({ texto, sombra }: { texto: string; sombra: boolean }) {
+  return (
+    <div style={{ marginTop: '2.5cqh', textAlign: 'center', fontSize: '4.4cqh', fontWeight: 600, color: 'rgba(255,255,255,.88)', textShadow: sombraTexto(sombra) }}>
+      {texto}
+    </div>
+  )
+}
+
+/** Aplica o controle (tocar/pausar/buscar/volume/repetir) num elemento de áudio ou vídeo. */
+export function useControleMidia(ref: RefObject<HTMLMediaElement | null>, controle: ControleMidia, ativo: boolean, saidaAudio?: string) {
+  useEffect(() => {
+    const m = ref.current
+    if (!m) return
+    m.volume = controle.volume
+    m.muted = controle.mudo
+    m.loop = controle.repetir
+  }, [ref, controle.volume, controle.mudo, controle.repetir])
 
   useEffect(() => {
-    const v = ref.current
-    if (!v) return
-    v.volume = controle.volume
-    v.muted = controle.mudo
-  }, [controle.volume, controle.mudo])
+    const m = ref.current
+    if (!m || !ativo) return
+    if (controle.tocando) m.play().catch(() => {})
+    else m.pause()
+  }, [ref, controle.tocando, controle.ordem, ativo])
+
+  const buscaInicial = useRef(controle.busca.seq)
+  useEffect(() => {
+    const m = ref.current
+    if (!m || controle.busca.seq === buscaInicial.current) return
+    buscaInicial.current = controle.busca.seq
+    const alvo = controle.busca.relativo ? m.currentTime + controle.busca.segundos : controle.busca.segundos
+    const limite = Number.isFinite(m.duration) ? m.duration : alvo
+    m.currentTime = Math.min(Math.max(0, alvo), Math.max(0, limite - 0.05))
+    if (controle.tocando) m.play().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, controle.busca.seq])
 
   useEffect(() => {
-    const v = ref.current
-    if (!v || !ativo) return
-    if (controle.tocando) v.play().catch(() => {})
-    else v.pause()
-  }, [controle.tocando, ativo])
+    const m = ref.current as (HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> }) | null
+    if (!m?.setSinkId || saidaAudio === undefined) return
+    m.setSinkId(saidaAudio).catch(() => m.setSinkId?.('').catch(() => {}))
+  }, [ref, saidaAudio])
+}
 
-  const reinicioInicial = useRef(controle.reinicio)
+/** Telemetria a cada 250 ms (posição, duração, quadros perdidos). */
+export function useTelemetriaMidia(ref: RefObject<HTMLMediaElement | null>, ativo: boolean, enviar?: (v: TelemetriaVideo | null) => void) {
   useEffect(() => {
-    const v = ref.current
-    if (!v || controle.reinicio === reinicioInicial.current) return
-    v.currentTime = 0
-    v.play().catch(() => {})
-  }, [controle.reinicio])
-
-  useEffect(() => {
-    if (!aoTelemetria || !ativo) return
+    if (!enviar || !ativo) return
     const id = setInterval(() => {
-      const v = ref.current
-      if (!v) return
-      const q = v.getVideoPlaybackQuality()
-      aoTelemetria({
-        posicao: v.currentTime,
-        duracao: Number.isFinite(v.duration) ? v.duration : 0,
-        tocando: !v.paused && !v.ended,
-        quadros: q.totalVideoFrames,
-        perdidos: q.droppedVideoFrames,
+      const m = ref.current
+      if (!m) return
+      const q = m instanceof HTMLVideoElement ? m.getVideoPlaybackQuality() : null
+      enviar({
+        posicao: m.currentTime,
+        duracao: Number.isFinite(m.duration) ? m.duration : 0,
+        tocando: !m.paused && !m.ended,
+        quadros: q?.totalVideoFrames ?? 0,
+        perdidos: q?.droppedVideoFrames ?? 0,
       })
     }, 250)
     return () => clearInterval(id)
-  }, [aoTelemetria, ativo])
+  }, [ref, ativo, enviar])
+}
 
-  return (
-    <video
-      ref={ref}
-      src={p.url}
-      autoPlay={controle.tocando}
-      loop={p.loop}
-      playsInline
-      className="h-full w-full"
-      style={{ objectFit: p.ajuste }}
-    />
-  )
+function VideoSaida(p: {
+  url: string
+  ajuste: CSSProperties['objectFit']
+  controle: ControleMidia
+  ativo: boolean
+  aoTelemetria?: (v: TelemetriaVideo | null) => void
+  saidaAudio?: string
+}) {
+  const ref = useRef<HTMLVideoElement>(null)
+  useControleMidia(ref, p.controle, p.ativo, p.saidaAudio)
+  useTelemetriaMidia(ref, p.ativo, p.aoTelemetria)
+  return <video ref={ref} src={p.url} autoPlay={p.controle.tocando} playsInline className="h-full w-full" style={{ objectFit: p.ajuste }} />
 }
 
 export function formatarTempo(s: number): string {
@@ -294,43 +364,35 @@ export function formatarTempo(s: number): string {
   return `${m}:${String(seg).padStart(2, '0')}`
 }
 
-function VideoNaMiniatura({ nome, telemetria }: { nome: string; telemetria?: TelemetriaVideo | null }) {
+/** Vídeo sem decodificar: nome, tempo que falta e barra de progresso (Palco e miniatura de reserva). */
+function VideoResumido({ nome, telemetria }: { nome: string; telemetria?: TelemetriaVideo | null }) {
   const pct = telemetria && telemetria.duracao > 0 ? (telemetria.posicao / telemetria.duracao) * 100 : 0
+  const falta = telemetria ? telemetria.duracao - telemetria.posicao : null
   return (
     <div className="flex h-full w-full flex-col items-center justify-center bg-[#0b0d12] text-white" style={{ gap: '3cqh' }}>
-      <Film style={{ width: '16cqh', height: '16cqh', opacity: 0.7 }} />
+      <Film style={{ width: '14cqh', height: '14cqh', opacity: 0.6 }} />
       <div style={{ fontSize: '7cqh', fontWeight: 600, maxWidth: '90%' }} className="truncate">
         {nome}
       </div>
-      {telemetria && (
-        <div style={{ fontSize: '6cqh', opacity: 0.75 }}>
-          {telemetria.tocando ? '▶' : '❚❚'} {formatarTempo(telemetria.posicao)} / {formatarTempo(telemetria.duracao)}
+      {telemetria && falta !== null && (
+        <div style={{ fontSize: '9cqh', fontWeight: 700, fontVariantNumeric: 'tabular-nums', opacity: 0.9 }}>
+          {telemetria.tocando ? '▶' : '❚❚'} −{formatarTempo(falta)}
         </div>
       )}
-      <div className="absolute bottom-0 left-0 h-[3cqh] bg-destaque" style={{ width: `${pct}%` }} />
+      <div className="absolute bottom-0 left-0 bg-[#4f8cff]" style={{ height: '2.5cqh', width: `${pct}%` }} />
     </div>
   )
 }
 
 export function TelaEspera({ espera }: { espera: ConfigTelaEspera }) {
   return (
-    <div
-      className="flex h-full w-full flex-col items-center justify-center text-center"
-      style={{ background: espera.corFundo, color: espera.corTexto }}
-    >
+    <div className="flex h-full w-full flex-col items-center justify-center text-center" style={{ background: espera.corFundo, color: espera.corTexto }}>
       {espera.imagem ? (
-        <img
-          src={urlMidia(espera.imagem)}
-          alt=""
-          draggable={false}
-          style={{ maxWidth: '70%', maxHeight: '70%', objectFit: 'contain' }}
-        />
+        <img src={urlMidia(espera.imagem)} alt="" draggable={false} style={{ maxWidth: '70%', maxHeight: '70%', objectFit: 'contain' }} />
       ) : (
         <>
           <div style={{ fontSize: '12cqh', fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.1 }}>{espera.texto}</div>
-          {espera.subtitulo && (
-            <div style={{ fontSize: '4.6cqh', opacity: 0.7, marginTop: '2.5cqh' }}>{espera.subtitulo}</div>
-          )}
+          {espera.subtitulo && <div style={{ fontSize: '4.6cqh', opacity: 0.7, marginTop: '2.5cqh' }}>{espera.subtitulo}</div>}
         </>
       )}
     </div>

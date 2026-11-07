@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
 import { type ApiSonoplastia, CANAIS } from '../shared/ipc'
 
 function ouvir<T>(canal: string, cb: (v: T) => void): () => void {
@@ -9,25 +9,62 @@ function ouvir<T>(canal: string, cb: (v: T) => void): () => void {
   }
 }
 
+const chamar =
+  (canal: string) =>
+  (...args: unknown[]) =>
+    ipcRenderer.invoke(canal, ...args)
+
 const api: ApiSonoplastia = {
-  comando: (c) => ipcRenderer.invoke(CANAIS.comando, c),
-  obterEstado: () => ipcRenderer.invoke(CANAIS.obterEstado),
+  comando: chamar(CANAIS.comando),
+  obterEstado: chamar(CANAIS.obterEstado),
   aoMudarEstado: (cb) => ouvir(CANAIS.estado, cb),
 
-  obterConfig: () => ipcRenderer.invoke(CANAIS.obterConfig),
-  salvarConfig: (c) => ipcRenderer.invoke(CANAIS.salvarConfig, c),
+  obterConfig: chamar(CANAIS.obterConfig),
+  salvarConfig: chamar(CANAIS.salvarConfig),
   aoMudarConfig: (cb) => ouvir(CANAIS.config, cb),
 
-  obterTelas: () => ipcRenderer.invoke(CANAIS.obterTelas),
+  obterTelas: chamar(CANAIS.obterTelas),
   aoMudarTelas: (cb) => ouvir(CANAIS.telas, cb),
-  identificarTelas: () => ipcRenderer.invoke(CANAIS.identificar),
-  reabrirSaidas: () => ipcRenderer.invoke(CANAIS.reabrirSaidas),
+  identificarTelas: chamar(CANAIS.identificar),
+  reabrirSaidas: chamar(CANAIS.reabrirSaidas),
+  idCapturaSaida: chamar(CANAIS.idCaptura),
 
-  escolherArquivo: (tipo) => ipcRenderer.invoke(CANAIS.escolherArquivo, tipo),
-  videoDeTeste: () => ipcRenderer.invoke(CANAIS.videoDeTeste),
+  escolherArquivo: chamar(CANAIS.escolherArquivo),
+  escolherPasta: chamar(CANAIS.escolherPasta),
+  videoDeTeste: chamar(CANAIS.videoDeTeste),
+  caminhoDoArquivo: (arquivo) => webUtils.getPathForFile(arquivo),
 
   enviarTelemetria: (t) => ipcRenderer.send(CANAIS.telemetria, t),
   aoTelemetria: (cb) => ouvir(CANAIS.telemetria, cb),
-}
+  aoProgresso: (cb) => ouvir(CANAIS.progresso, cb),
+
+  listarMidias: chamar(CANAIS.listarMidias),
+  importarMidias: chamar(CANAIS.importarMidias),
+  escolherEImportarMidias: chamar(CANAIS.escolherEImportar),
+  renomearMidia: chamar(CANAIS.renomearMidia),
+  excluirMidia: chamar(CANAIS.excluirMidia),
+  restaurarMidia: chamar(CANAIS.restaurarMidia),
+  apagarMidia: chamar(CANAIS.apagarMidia),
+  aoMudarMidias: (cb) => ouvir(CANAIS.midiasMudaram, cb),
+
+  listarMusicas: chamar(CANAIS.listarMusicas),
+  obterMusica: chamar(CANAIS.obterMusica),
+  salvarMusica: chamar(CANAIS.salvarMusica),
+  abrirMusica: chamar(CANAIS.abrirMusica),
+  importarLouvorJa: chamar(CANAIS.importarLouvorJa),
+
+  versoesBiblia: chamar(CANAIS.versoesBiblia),
+  aoMudarBiblia: (cb) => ouvir(CANAIS.biblia, cb),
+  arquivosBiblia: chamar(CANAIS.arquivosBiblia),
+  importarBiblia: chamar(CANAIS.importarBiblia),
+  importarBibliaUrl: chamar(CANAIS.importarBibliaUrl),
+  escolherArquivoBiblia: chamar(CANAIS.escolherArquivoBiblia),
+  capitulo: chamar(CANAIS.capitulo),
+  totalCapitulos: chamar(CANAIS.totalCapitulos),
+  buscarBiblia: chamar(CANAIS.buscarBiblia),
+
+  aoPedidoSonda: (cb) => ouvir(CANAIS.sondaPedido, cb),
+  responderSonda: (r) => ipcRenderer.send(CANAIS.sondaResultado, r),
+} as ApiSonoplastia
 
 contextBridge.exposeInMainWorld('api', api)

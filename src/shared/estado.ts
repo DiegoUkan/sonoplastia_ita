@@ -6,6 +6,9 @@ export type Conteudo =
   | { tipo: 'texto'; texto: string; referencia?: string }
   | { tipo: 'imagem'; url: string; nome: string }
   | { tipo: 'video'; url: string; nome: string; loop: boolean }
+  /** trecho de música; indice -1 = introdução (antes do primeiro trecho) */
+  | { tipo: 'letra'; titulo: string; texto: string; proximo: string | null; indice: number; total: number }
+  | { tipo: 'versiculo'; texto: string; referencia: string; segundo: { texto: string; referencia: string } | null }
 
 export type Fundo = { tipo: 'nenhum' } | { tipo: 'imagem'; url: string; nome: string }
 
@@ -17,12 +20,16 @@ export type Fundo = { tipo: 'nenhum' } | { tipo: 'imagem'; url: string; nome: st
  */
 export type ModoTela = 'normal' | 'limpar' | 'logo' | 'preto'
 
-export interface ControleVideo {
+/** Controle de uma mídia que toca (vídeo numa saída ou a trilha de áudio). */
+export interface ControleMidia {
   tocando: boolean
   volume: number
   mudo: boolean
-  /** muda a cada "reiniciar": a saída volta o vídeo para o início */
-  reinicio: number
+  repetir: boolean
+  /** muda a cada tocar/pausar: quem toca reaplica mesmo sem mudança (ex.: tocar um vídeo que terminou) */
+  ordem: number
+  /** pedido de posição, aplicado quando `seq` muda */
+  busca: { seq: number; segundos: number; relativo: boolean }
 }
 
 export interface EstadoSaida {
@@ -32,27 +39,69 @@ export interface EstadoSaida {
   chave: number
   fundo: Fundo
   tela: ModoTela
-  video: ControleVideo
+  video: ControleMidia
+}
+
+export type VersaoMusica = 'cantado' | 'playback' | 'manual'
+
+export type FonteAudio =
+  | { tipo: 'audio'; url: string; nome: string; midiaId: number }
+  | { tipo: 'musica'; url: string; nome: string; musicaId: number; versao: 'cantado' | 'playback' }
+
+export interface EstadoAudio {
+  fonte: FonteAudio | null
+  controle: ControleMidia
+}
+
+export interface SlideMusica {
+  texto: string
+  /** início do trecho na versão escolhida (0 = sem tempo, só manual) */
+  ms: number
+}
+
+export interface EstadoMusica {
+  musicaId: number
+  titulo: string
+  album: string
+  versao: VersaoMusica
+  slides: SlideMusica[]
+  /** trecho no ar; -1 = introdução */
+  indice: number
+  seguirAudio: boolean
+  tituloNaIntroducao: boolean
+  alvo: Alvo
+  fundoUrl: string | null
 }
 
 export interface EstadoMotor {
   /** aumenta a cada mudança; as janelas descartam estados mais velhos que o que já têm */
   versao: number
   saidas: Record<string, EstadoSaida>
+  audio: EstadoAudio
+  musica: EstadoMusica | null
 }
 
 export const TODAS = 'todas'
-/** id de uma saída ou TODAS */
+/** alvo das ações de mídia que vão para a trilha de áudio (músicas e áudios avulsos) */
+export const AUDIO = 'audio'
+/** id de uma saída, TODAS ou (nas ações de mídia) AUDIO */
 export type Alvo = string
 
-export type AcaoVideo = 'tocar' | 'pausar' | 'reiniciar' | 'parar'
+export type AcaoMidia = 'tocar' | 'pausar' | 'reiniciar' | 'parar'
 
 export type Comando =
   | { tipo: 'mostrar'; alvo: Alvo; conteudo: Conteudo }
   | { tipo: 'fundo'; alvo: Alvo; fundo: Fundo }
   | { tipo: 'tela'; alvo: Alvo; tela: ModoTela }
-  | { tipo: 'video'; alvo: Alvo; acao: AcaoVideo }
+  | { tipo: 'midia'; alvo: Alvo; acao: AcaoMidia }
+  | { tipo: 'buscar'; alvo: Alvo; segundos: number; relativo?: boolean }
+  | { tipo: 'repetir'; alvo: Alvo; valor: boolean }
   | { tipo: 'volume'; alvo: Alvo; volume?: number; mudo?: boolean }
+  /** toca um áudio avulso na trilha de áudio (null para) */
+  | { tipo: 'audio'; fonte: FonteAudio | null }
+  | { tipo: 'musica:slide'; indice: number; origem: 'operador' | 'audio' }
+  | { tipo: 'musica:seguir'; valor: boolean }
+  | { tipo: 'musica:fechar' }
 
 export interface TelemetriaVideo {
   posicao: number
@@ -62,10 +111,10 @@ export interface TelemetriaVideo {
   perdidos: number
 }
 
-/** O que cada janela de saída informa ao motor (repassado para a tela de comando). */
+/** O que cada janela que toca mídia informa (saídas e a janela de áudio, com saidaId = AUDIO). */
 export interface Telemetria {
   saidaId: string
-  /** pixels reais da saída */
+  /** pixels reais da saída (0 na janela de áudio) */
   largura: number
   altura: number
   video: TelemetriaVideo | null
@@ -102,6 +151,8 @@ export interface InfoSaida {
   situacao: SituacaoSaida
   monitorId: number | null
   aviso: string | null
+  /** id da janela aberta (muda quando a janela é recriada); null sem janela */
+  janelaId: number | null
 }
 
 export interface EstadoTelas {

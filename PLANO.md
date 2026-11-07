@@ -178,9 +178,11 @@ prévia; Enter ou "Enviar" põe no ar). A tela de comando sempre mostra o que es
 Na tela de comando, à direita: miniatura do **Público** e do **Palco** (lado a lado ou empilhadas) e,
 logo abaixo, o **player**.
 
-- A miniatura usa **os mesmos componentes** da saída, em escala: mostra exatamente o que está no ar. Para
-  vídeo, mostra quadros capturados da saída (`webContents.capturePage`) algumas vezes por segundo
-  (padrão 4, configurável), para não decodificar o vídeo duas vezes.
+- A miniatura **captura a própria página da saída ao vivo** (`webContents.getMediaSourceId` +
+  `getUserMedia` com `chromeMediaSource: 'tab'`, reduzida na placa de vídeo, quadros por segundo
+  configuráveis): mostra exatamente o que está no ar, vídeo andando, sem decodificar o vídeo de novo.
+  Sem janela de saída, usa os mesmos componentes da saída em escala. (Decidido em 2026-11-07 no lugar
+  do `capturePage` periódico, que seria pesado e entrecortado.)
 - **Arrastar e soltar** na miniatura: um item da biblioteca, da liturgia ou um arquivo do Explorer
   começa a tocar naquela saída. Arquivo de fora é importado para a biblioteca antes. Soltar em "Todas"
   manda para as duas.
@@ -487,9 +489,9 @@ fechado (os dois programas brigam pelos projetores).
 | Fase | Entrega | Pronto quando |
 |---|---|---|
 | **0. Fundação** (código pronto em 2026-11-07; falta o teste nos projetores) | Git, projeto Electron + React + TS, motor de estado, saídas automáticas nos monitores, identificar telas, modo janela, camadas, Preto/Limpar/Logo, esquema de configurações e tela básica | Ao abrir o programa, as duas saídas aparecem sozinhas nos projetores certos, voltam ao religar o projetor e mostram uma imagem de teste. Um vídeo de teste roda liso nos **dois** projetores (teste das duas placas). |
-| **1. Mídias, player e miniaturas** | Biblioteca (importar, arrastar, ffmpeg, conversão), vídeo/imagem/áudio nas saídas, player completo, saída de áudio, miniaturas com arrastar e soltar, regra do Palco para vídeo | Arrastar um vídeo para a miniatura do Público toca no projetor; o player controla; o Palco mostra o tempo restante. |
-| **2. Músicas** | Importador Louvor JA, biblioteca e busca, tocar com letra no tempo (cantado/playback/manual), fundos, estilos, Palco com próximo trecho, editor e "marcar tempos" | Uma música do Louvor JA toca com a letra trocando no tempo certo, inclusive pausando e pulando. |
-| **3. Bíblia** | Importar ARA/NVI, catálogo para baixar versões, FTS, parser de referência, apresentação com divisão automática, navegação, segunda versão | Digitar "jo 3 16" e mostrar em menos de 1 segundo; avançar versículo a versículo. |
+| **1. Mídias, player e miniaturas** (código pronto em 2026-11-07, falta ver no projetor; ffmpeg ainda é o do Holyrics) | Biblioteca (importar, arrastar, ffmpeg, conversão), vídeo/imagem/áudio nas saídas, player completo, saída de áudio, miniaturas com arrastar e soltar, regra do Palco para vídeo | Arrastar um vídeo para a miniatura do Público toca no projetor; o player controla; o Palco mostra o tempo restante. |
+| **2. Músicas** (código pronto em 2026-11-07, falta ver no projetor) | Importador Louvor JA, biblioteca e busca, tocar com letra no tempo (cantado/playback/manual), fundos, estilos, Palco com próximo trecho, editor e "marcar tempos" | Uma música do Louvor JA toca com a letra trocando no tempo certo, inclusive pausando e pulando. |
+| **3. Bíblia** (código pronto em 2026-11-07, falta ver no projetor; download só por endereço colado) | Importar ARA/NVI, catálogo para baixar versões, FTS, parser de referência, apresentação com divisão automática, navegação, segunda versão | Digitar "jo 3 16" e mostrar em menos de 1 segundo; avançar versículo a versículo. |
 | **4. Apresentações** | PPTX por PowerPoint COM (imagens + anotações + vídeos embutidos), PDF por pdf.js, passador, modo PowerPoint | Um pptx de pregador importado fica igual ao original e passa pelo passador. |
 | **5. Liturgia** | Roteiro com todos os tipos, modelos, avanço automático, horários, itens ligados às séries do site | Um culto inteiro roda pela liturgia com o botão "Próximo". |
 | **6. Ferramentas** | Relógio, temporizador, QR code, sorteio (sobreposição/tela cheia, por saída) | Relógio só no Palco, QR no canto do Público, temporizador com alertas. |

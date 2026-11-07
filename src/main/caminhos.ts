@@ -11,15 +11,17 @@ export const caminhos = {
   base,
   dados: join(base, 'dados'),
   config: join(base, 'dados', 'config.json'),
+  banco: join(base, 'dados', 'sonoplastia.db'),
   midias: join(base, 'midias'),
   videos: join(base, 'midias', 'video'),
-  imagens: join(base, 'midias', 'imagem'),
+  biblias: join(base, 'biblias'),
   cache: join(base, 'cache'),
+  miniaturas: join(base, 'cache', 'miniaturas'),
   logs: join(base, 'logs'),
 }
 
 export function garantirPastas(): void {
-  for (const p of [caminhos.dados, caminhos.videos, caminhos.imagens, caminhos.cache, caminhos.logs]) {
+  for (const p of [caminhos.dados, caminhos.videos, caminhos.biblias, caminhos.miniaturas, caminhos.logs]) {
     mkdirSync(p, { recursive: true })
   }
 }

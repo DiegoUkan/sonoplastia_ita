@@ -1,14 +1,14 @@
-/** Componentes básicos da tela de comando. */
+/** Componentes básicos da tela de comando. As cores vêm do tema (estilos.css). */
 import type { LucideIcon } from 'lucide-react'
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from 'react'
 
 type Variante = 'padrao' | 'primario' | 'perigo' | 'fantasma'
 
 const VARIANTES: Record<Variante, string> = {
-  padrao: 'bg-painel-2 border border-borda text-texto hover:bg-[#252a35]',
-  primario: 'bg-destaque border border-destaque text-white hover:brightness-110',
-  perigo: 'bg-perigo/10 border border-perigo/40 text-[#ff8a8a] hover:bg-perigo/20',
-  fantasma: 'border border-transparent text-suave hover:bg-painel-2 hover:text-texto',
+  padrao: 'bg-painel-2 border border-borda text-texto hover:bg-hover',
+  primario: 'bg-destaque border border-destaque text-sobre-destaque hover:brightness-110',
+  perigo: 'bg-perigo/10 border border-perigo/40 text-perigo-texto hover:bg-perigo/20',
+  fantasma: 'border border-transparent text-suave hover:bg-hover hover:text-texto',
 }
 
 export function Botao({
@@ -25,13 +25,13 @@ export function Botao({
   ativo?: boolean
   corAtivo?: 'destaque' | 'perigo' | 'aviso'
   icone?: LucideIcon
-  tamanho?: 'sm' | 'md' | 'lg'
+  tamanho?: 'xs' | 'sm' | 'md' | 'lg'
 }) {
-  const tam = { sm: 'h-7 px-2.5 text-xs gap-1.5', md: 'h-9 px-3 text-sm gap-2', lg: 'h-12 px-4 text-base gap-2.5' }[tamanho]
+  const tam = { xs: 'h-6 px-1.5 text-[11px] gap-1', sm: 'h-7 px-2.5 text-xs gap-1.5', md: 'h-9 px-3 text-sm gap-2', lg: 'h-11 px-4 text-[15px] gap-2.5' }[tamanho]
   const corAtiva = {
-    destaque: 'bg-destaque/25 border-destaque text-white',
+    destaque: 'bg-destaque border-destaque text-sobre-destaque',
     perigo: 'bg-perigo border-perigo text-white',
-    aviso: 'bg-aviso/90 border-aviso text-black',
+    aviso: 'bg-aviso border-aviso text-sobre-aviso',
   }[corAtivo]
   return (
     <button
@@ -42,7 +42,7 @@ export function Botao({
       aria-pressed={ativo || undefined}
       {...resto}
     >
-      {Icone && <Icone className={tamanho === 'sm' ? 'size-3.5' : 'size-4'} strokeWidth={2} />}
+      {Icone && <Icone className={tamanho === 'xs' || tamanho === 'sm' ? 'size-3.5' : 'size-4'} strokeWidth={2} />}
       {children}
     </button>
   )
@@ -55,8 +55,11 @@ export function Interruptor({ ligado, aoMudar, rotulo }: { ligado: boolean; aoMu
       role="switch"
       aria-checked={ligado}
       aria-label={rotulo}
-      onClick={() => aoMudar(!ligado)}
-      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${ligado ? 'bg-destaque' : 'bg-[#343a46]'}`}
+      onClick={(e) => {
+        e.currentTarget.blur()
+        aoMudar(!ligado)
+      }}
+      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${ligado ? 'bg-destaque' : 'bg-interruptor'}`}
     >
       <span
         className={`absolute left-0 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${ligado ? 'translate-x-5.5' : 'translate-x-0.5'}`}
@@ -82,16 +85,23 @@ export function Secao({ titulo, descricao, acoes, children }: { titulo: string; 
 
 type Tom = 'ok' | 'destaque' | 'aviso' | 'perigo' | 'apagado'
 const TONS: Record<Tom, string> = {
-  ok: 'bg-ok/15 text-ok',
-  destaque: 'bg-destaque/15 text-[#8db4ff]',
-  aviso: 'bg-aviso/15 text-aviso',
-  perigo: 'bg-perigo/15 text-[#ff8a8a]',
-  apagado: 'bg-white/5 text-apagado',
+  ok: 'bg-ok/12 text-ok-texto',
+  destaque: 'bg-destaque/12 text-destaque-texto',
+  aviso: 'bg-aviso/15 text-aviso-texto',
+  perigo: 'bg-perigo/12 text-perigo-texto',
+  apagado: 'bg-texto/5 text-apagado',
 }
 
-export function Selo({ tom, children }: { tom: Tom; children: ReactNode }) {
-  return <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONS[tom]}`}>{children}</span>
+export function Selo({ tom, children, title }: { tom: Tom; children: ReactNode; title?: string }) {
+  return (
+    <span title={title} className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONS[tom]}`}>
+      {children}
+    </span>
+  )
 }
+
+export const classeEntrada =
+  'h-9 rounded-md border border-borda bg-entrada px-2.5 text-sm text-texto outline-none placeholder:text-apagado focus:border-destaque'
 
 /**
  * Valor local que só é enviado depois de uma pausa (texto, cor, controle deslizante), para não gravar
@@ -127,4 +137,125 @@ export function useRascunho<T>(valor: T, aoMudar: (v: T) => void, atrasoMs = 350
     }, atrasoMs)
   }
   return [rascunho, mudar]
+}
+
+/**
+ * Controle deslizante que (1) manda o valor no máximo a cada `intervaloMs` enquanto arrasta, (2)
+ * manda o valor final ao soltar e (3) larga o foco ao soltar, para as setas e o passador de slides
+ * não continuarem mexendo nele.
+ */
+export function Deslizante({
+  valor,
+  min,
+  max,
+  passo,
+  aoMudar,
+  aoSoltar,
+  vertical = false,
+  intervaloMs = 80,
+  desativado,
+  className = '',
+  rotulo,
+}: {
+  valor: number
+  min: number
+  max: number
+  passo: number
+  /** chamado durante o arraste (limitado) */
+  aoMudar?: (v: number) => void
+  /** chamado ao soltar (ou a cada tecla) */
+  aoSoltar?: (v: number) => void
+  vertical?: boolean
+  intervaloMs?: number
+  desativado?: boolean
+  className?: string
+  rotulo?: string
+}) {
+  const [local, setLocal] = useState<number | null>(null)
+  const ultimoEnvio = useRef(0)
+  const arrastando = useRef(false)
+  return (
+    <input
+      type="range"
+      aria-label={rotulo}
+      title={rotulo}
+      min={min}
+      max={max}
+      step={passo}
+      disabled={desativado}
+      value={local ?? valor}
+      className={`cursor-pointer accent-destaque disabled:cursor-not-allowed disabled:opacity-40 ${vertical ? 'vertical' : ''} ${className}`}
+      onPointerDown={() => {
+        arrastando.current = true
+      }}
+      onChange={(e) => {
+        const v = Number(e.target.value)
+        setLocal(v)
+        if (!arrastando.current) {
+          aoSoltar?.(v)
+          aoMudar?.(v)
+          setLocal(null)
+          return
+        }
+        if (aoMudar && Date.now() - ultimoEnvio.current > intervaloMs) {
+          ultimoEnvio.current = Date.now()
+          aoMudar(v)
+        }
+      }}
+      onPointerUp={(e) => {
+        arrastando.current = false
+        const v = Number(e.currentTarget.value)
+        aoMudar?.(v)
+        aoSoltar?.(v)
+        setLocal(null)
+        e.currentTarget.blur()
+      }}
+    />
+  )
+}
+
+/** Faixa de botões para escolher uma opção (ex.: Público / Palco / Todas). */
+export function Segmentado<T extends string>({
+  opcoes,
+  valor,
+  aoMudar,
+  tamanho = 'md',
+}: {
+  opcoes: Array<{ valor: T; rotulo: ReactNode; titulo?: string }>
+  valor: T
+  aoMudar: (v: T) => void
+  tamanho?: 'sm' | 'md'
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-borda bg-entrada p-0.5">
+      {opcoes.map((o) => (
+        <button
+          key={o.valor}
+          type="button"
+          title={o.titulo}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            aoMudar(o.valor)
+          }}
+          className={`cursor-pointer rounded-md font-medium transition-colors ${tamanho === 'sm' ? 'h-6 px-2.5 text-xs' : 'h-8 px-3.5 text-sm'} ${
+            valor === o.valor ? 'bg-destaque text-sobre-destaque' : 'text-suave hover:text-texto'
+          }`}
+        >
+          {o.rotulo}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Barra de andamento de uma tarefa longa. */
+export function BarraProgresso({ fracao, texto }: { fracao: number; texto?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-borda">
+        <div className="h-full rounded-full bg-destaque transition-[width]" style={{ width: `${Math.round(fracao * 100)}%` }} />
+      </div>
+      {texto && <span className="shrink-0 text-xs tabular-nums text-suave">{texto}</span>}
+    </div>
+  )
 }

@@ -33,7 +33,10 @@ const normalizar = (p: string) => resolve(p).toLowerCase()
 /** Precisa ser chamado antes de `app.whenReady()`. */
 export function registrarEsquemaPrivilegiado(): void {
   protocol.registerSchemesAsPrivileged([
-    { scheme: ESQUEMA_MIDIA, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+    {
+      scheme: ESQUEMA_MIDIA,
+      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
+    },
   ])
 }
 
@@ -80,6 +83,8 @@ export function tratarProtocoloMidia(): void {
       'Content-Type': MIME[extname(caminho).toLowerCase()] ?? 'application/octet-stream',
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'no-cache',
+      // a janela-sonda desenha quadros do vídeo num canvas para gerar a miniatura
+      'Access-Control-Allow-Origin': '*',
     }
     const range = req.headers.get('range')
     const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null

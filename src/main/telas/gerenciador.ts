@@ -62,6 +62,12 @@ export class GerenciadorTelas extends EventEmitter {
     return { monitores: this.monitores(), saidas: this.info }
   }
 
+  /** Janela aberta de uma saída (para a miniatura ao vivo capturar). */
+  janelaDe(saidaId: string): BrowserWindow | null {
+    const j = this.janelas.get(saidaId)
+    return j && !j.win.isDestroyed() ? j.win : null
+  }
+
   /** Janelas de saída abertas agora (para o autoteste capturar). */
   janelasAbertas(): Array<{ saidaId: string; win: BrowserWindow }> {
     return [...this.janelas].filter(([, j]) => !j.win.isDestroyed()).map(([saidaId, j]) => ({ saidaId, win: j.win }))
@@ -86,7 +92,7 @@ export class GerenciadorTelas extends EventEmitter {
     const ids = new Set(cfg.saidas.map((s) => s.id))
     for (const id of [...this.janelas.keys()]) if (!ids.has(id)) this.fechar(id)
 
-    this.info = planos.map((p): InfoSaida => {
+    const base = planos.map((p): Omit<InfoSaida, 'janelaId'> => {
       const s = cfg.saidas.find((x) => x.id === p.saidaId)!
       const monitorId = p.destino.tipo === 'monitor' ? p.destino.monitor.id : null
       if (p.destino.tipo === 'nenhum') {
@@ -105,6 +111,7 @@ export class GerenciadorTelas extends EventEmitter {
       }
       return { saidaId: s.id, situacao: p.situacao, monitorId, aviso: p.aviso }
     })
+    this.info = base.map((i) => ({ ...i, janelaId: this.janelaDe(i.saidaId)?.webContents.id ?? null }))
     this.registrarMudancas()
     this.emit('mudou', this.estado())
   }
