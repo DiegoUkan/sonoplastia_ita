@@ -349,8 +349,10 @@ Comum aos dois:
 Como ficou na implementação (2026-11-14): página Liturgia (monta e roda no mesmo lugar), documento
 JSON por culto na tabela `liturgias`, modelo padrão "Culto de sábado" com as 4 seções, executor no
 processo principal (`src/main/liturgia/`). Tipos de item por enquanto: música, mídia, apresentação,
-versículo, texto, tela preta/logo. Ainda não: itens das ferramentas (Fase 6), itens ligados às séries
-do site (Fase 7), transição por item, importar `liturgia.ja`.
+versículo, texto, tela preta/logo; desde a Fase 6 também temporizador, QR code e sorteio. Música pode
+ser "escolher na hora" (a tela de comando pergunta cantado/playback/só a letra). Cada item pode trocar o
+cenário das luzes ao começar e ao sair (luz.local). Itens com miniatura. Ainda não: itens ligados às
+séries do site (Fase 7), transição por item, importar `liturgia.ja`.
 
 ### 5.6 Ferramentas
 
@@ -380,6 +382,22 @@ configuráveis, e podem ser itens da liturgia.
 - Sugestões (não pedidas, avaliar com o usuário): **mensagem rápida para o Palco** (ex.: "Faltam 5
   minutos", só no Palco); **rodapé de aviso** no Público.
 
+Como ficou na implementação (2026-11-14): página **Ferramentas** com relógio, temporizador, mensagem
+(faixa amarela no canto, a sugestão acima), QR code e sorteio; cada uma com "Mostrar em" por saída (Não /
+Canto com posição em 9 pontos e tamanho / Tela cheia). O relógio é configuração fixa da saída e o Palco
+já vem com ele no canto (pedido do usuário). Temporizador, QR e sorteio também são itens da liturgia.
+Opções gerais em Configurações → Ferramentas. Ainda não: som no sorteio, relógio 12 h, vários
+temporizadores ao mesmo tempo, lista de sorteio de CSV, rodapé de aviso.
+
+### 5.6a Iluminação (pedido de 2026-11-14)
+
+O sistema de luzes da igreja (`http://luz.local`, placa com relés e página própria) tem API simples por
+GET: `/status` (estado dos 8 relés), `/get-names`, `/list-scenarios`, `/toggle?id=N&user=…` (só alterna)
+e `/load-scenario?name=…&user=…`. O programa tem um botão discreto **Luzes** na barra de baixo que abre o
+painel (relés e cenários) e, em cada item da liturgia, um cenário para quando o item começa e outro para
+quando a liturgia sai dele (ex.: "4. Projetor" no vídeo, "1. Ligar tudo" depois). Tudo pelo processo
+principal, com tempo limite curto; Configurações → Iluminação.
+
 ### 5.7 Sincronização com o site da sonoplastia
 
 Porta para TypeScript do `..\Integração holyrics\sonoplastia_sync.py`, sem a parte do "nome fixo no
@@ -408,6 +426,19 @@ Holyrics" (aqui a liturgia aponta para a série, e não para um arquivo).
   notificação na tela de comando quando chega algo novo.
 - **Transição:** enquanto o Holyrics estiver em uso, o `sonoplastia_sync.py` continua alimentando o
   Holyrics. Os dois baixam para pastas separadas, sem conflito.
+
+**Atualização de 2026-11-14 (pedido do usuário):** o site mudou para `itaqui.diegoukan.com` com login
+("Senha da igreja", `POST /entrar`), áreas `#automaticos` (as séries) e `#arquivos` (envios). O
+`status.json` antigo agora responde 401. O que o usuário pediu:
+- integrar os arquivos do site à biblioteca de Mídias, com os novos marcados como **"novos"**;
+- **Provai e Vede, Informativo Mundial das Missões e Informativo da Comunicação**: o novo **substitui** o
+  antigo (o antigo sai) e **os itens da liturgia que usam a série são atualizados sozinhos**;
+- os outros arquivos entram como "novos";
+- se o sonoplasta apagar um arquivo importado, ele vai para **"deletados"** e **não é importado de novo**;
+- intervalo de atualização a critério (sugestão: 10 min de sexta 0h a sábado 12h; 1 h no resto da
+  semana; botão "Atualizar agora").
+A senha não entra no código: o usuário a digita em Configurações (guardada com `safeStorage`). Falta
+conhecer a estrutura das páginas/JSON do site (o usuário entra no navegador do painel do Claude).
 
 ### 5.8 Configurações ("generosas")
 

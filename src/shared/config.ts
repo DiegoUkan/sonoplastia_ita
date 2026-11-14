@@ -10,6 +10,7 @@
  * Para criar uma opção nova, basta acrescentá-la aqui com `.default()` e `.meta()`.
  */
 import { z } from 'zod'
+import { POSICOES, ROTULOS_POSICAO } from './ferramentas'
 
 export const AJUSTES = ['ajustar', 'preencher', 'esticar'] as const
 export type Ajuste = (typeof AJUSTES)[number]
@@ -24,6 +25,9 @@ export const EsquemaMonitorRef = z.object({
   y: z.number(),
 })
 export type MonitorRef = z.infer<typeof EsquemaMonitorRef>
+
+export const MODOS_RELOGIO = ['nao', 'canto', 'tela'] as const
+export { POSICOES, ROTULOS_POSICAO }
 
 export const EsquemaSaida = z.object({
   id: z.string().min(1),
@@ -74,20 +78,57 @@ export const EsquemaSaida = z.object({
     'x-ui': 'deslizante',
     'x-passo': 0.5,
   }),
-  textoSombra: z.boolean().default(true).meta({ title: 'Sombra no texto', description: 'Ajuda a ler sobre imagens claras.' }),
+  textoSombra: z.boolean().default(true).meta({
+    title: 'Sombra atrás do texto',
+    description: 'Uma sombra escura em volta das letras, para ler bem sobre imagens claras.',
+  }),
+  fundoEscurecer: z.number().min(0).max(80).default(10).meta({
+    title: 'Escurecer a imagem atrás de letras e versículos (%)',
+    description: '0 mostra a imagem como ela é. Mais alto deixa a imagem mais escura e o texto mais fácil de ler.',
+    'x-ui': 'deslizante',
+    'x-passo': 5,
+  }),
   slideMostrarProximo: z.boolean().default(false).meta({
     title: 'Apresentações: mostrar o próximo slide',
     description: 'O slide atual fica menor, com o próximo e o número do slide ao lado. Bom para o Palco.',
+  }),
+  slideAvisarFim: z.boolean().default(false).meta({
+    title: 'Apresentações: avisar no último slide',
+    description: 'Mostra "Último slide" em vermelho quando não há mais slides. Bom para o Palco (o público não precisa ver).',
   }),
   slideMostrarNotas: z.boolean().default(false).meta({
     title: 'Apresentações: mostrar as anotações do orador',
     description: 'O texto das anotações do PowerPoint, embaixo do slide.',
   }),
+  relogio: z.enum(MODOS_RELOGIO).default('nao').meta({
+    title: 'Relógio',
+    description:
+      'A hora certa, por cima do que estiver na tela. Em tela cheia, só enquanto não há nada no ar: com conteúdo, ele vai para o canto. Posição e tamanho na página Ferramentas.',
+    'x-opcoes': { nao: 'Não mostrar', canto: 'No canto', tela: 'Tela cheia (com conteúdo no ar, vai para o canto)' },
+  }),
+  // posição e tamanho (% da altura) das ferramentas no canto: escolhidos na página Ferramentas
+  relogioPosicao: z.enum(POSICOES).default('sup-dir'),
+  relogioTamanho: z.number().min(3).max(30).default(7),
+  temporizadorPosicao: z.enum(POSICOES).default('sup-esq'),
+  temporizadorTamanho: z.number().min(3).max(40).default(10),
+  qrPosicao: z.enum(POSICOES).default('inf-dir'),
+  qrTamanho: z.number().min(10).max(60).default(26),
 })
 export type ConfigSaida = z.infer<typeof EsquemaSaida>
 
-/** O Palco vem diferente do Público: sem vídeo, sem fundo nas músicas, com o próximo trecho e o próximo slide. */
-export const PADROES_PALCO = { mostrarVideo: false, musicaComFundo: false, textoComFundo: false, musicaMostrarProximo: true, slideMostrarProximo: true } as const
+/**
+ * O Palco vem diferente do Público: sem vídeo, sem fundo nas músicas, com o próximo trecho, o próximo
+ * slide, o aviso de último slide e o relógio no canto.
+ */
+export const PADROES_PALCO = {
+  mostrarVideo: false,
+  musicaComFundo: false,
+  textoComFundo: false,
+  musicaMostrarProximo: true,
+  slideMostrarProximo: true,
+  slideAvisarFim: true,
+  relogio: 'canto',
+} as const
 
 export const EsquemaTelaEspera = z.object({
   texto: z.string().default('IASD Itaqui').meta({ title: 'Texto principal' }),
@@ -142,6 +183,8 @@ export const EsquemaGeral = z.object({
     'x-ui': 'deslizante',
     'x-passo': 1,
   }),
+  /** volume de tudo o que toca, mexido no player (gravado para a próxima vez) */
+  volume: z.number().min(0).max(1).default(1),
   saidaAudio: z.string().default('').meta({
     title: 'Saída de som',
     description: 'Para onde vai o som das músicas, áudios e vídeos (ex.: a mesa de som).',
@@ -166,6 +209,10 @@ export const EsquemaMusicas = z.object({
     title: 'Pasta do Louvor JA',
     description: 'A pasta "config" do Louvor JA, onde ficam o database.db e as músicas.',
     'x-ui': 'pasta',
+  }),
+  focoNoManual: z.boolean().default(true).meta({
+    title: 'Só a letra: abrir o painel grande dos trechos',
+    description: 'Sem áudio, quem passa os trechos é você: o resto da tela de comando escurece e ficam só a letra e os botões de passar (→, PageDown ou Espaço).',
   }),
   aoTerminar: z.enum(['fechar', 'logo', 'manter']).default('fechar').meta({
     title: 'Quando o áudio da música termina',
@@ -244,6 +291,87 @@ export const EsquemaRemoto = z.object({
 })
 export type ConfigRemoto = z.infer<typeof EsquemaRemoto>
 
+export const EsquemaFerramentas = z.object({
+  relogioSegundos: z.boolean().default(false).meta({ title: 'Relógio: mostrar os segundos' }),
+  relogioData: z.boolean().default(false).meta({ title: 'Relógio: mostrar a data', description: 'Embaixo da hora, em letra menor.' }),
+  relogioTextoGrandePct: z.number().min(30).max(100).default(55).meta({
+    title: 'Relógio no canto com texto grande (% do tamanho)',
+    description:
+      'Quando a letra da música, o versículo ou um texto chega até a altura do relógio, ele diminui para não cobrir as palavras e volta ao tamanho normal depois. 100 = não diminui.',
+    'x-ui': 'deslizante',
+    'x-passo': 5,
+  }),
+  fundoNoCanto: z.boolean().default(true).meta({
+    title: 'Fundo escuro atrás do relógio e do temporizador no canto',
+    description: 'Ajuda a ler por cima de imagens, vídeos e slides claros.',
+  }),
+  temporizadorAmareloMin: z.number().int().min(0).max(60).default(5).meta({
+    title: 'Temporizador: amarelo quando faltar (min)',
+    description: '0 = não fica amarelo.',
+    'x-ui': 'deslizante',
+    'x-passo': 1,
+  }),
+  temporizadorVermelhoMin: z.number().int().min(0).max(30).default(1).meta({
+    title: 'Temporizador: vermelho quando faltar (min)',
+    description: '0 = só fica vermelho no fim.',
+    'x-ui': 'deslizante',
+    'x-passo': 1,
+  }),
+  temporizadorAoTerminar: z.enum(['negativo', 'parar']).default('negativo').meta({
+    title: 'Quando o tempo acaba',
+    'x-opcoes': { negativo: 'Continua contando o tempo passado (−0:35), em vermelho', parar: 'Para no 0:00' },
+  }),
+  temporizadorPiscar: z.boolean().default(true).meta({ title: 'Temporizador: piscar quando o tempo acabar' }),
+  temporizadorMensagem: z.string().max(80).default('Tempo esgotado').meta({
+    title: 'Mensagem quando o tempo acaba',
+    description: 'Aparece embaixo do temporizador em tela cheia. Em branco, sem mensagem.',
+  }),
+  qrMostrarLink: z.boolean().default(true).meta({ title: 'QR code: escrever o link embaixo (tela cheia)' }),
+  sorteioDuracaoS: z.number().min(0).max(15).default(4).meta({
+    title: 'Sorteio: duração da animação (s)',
+    description: 'Os nomes passam na tela antes de aparecer o sorteado. 0 = mostra direto.',
+    'x-ui': 'deslizante',
+    'x-passo': 0.5,
+  }),
+  // listas editadas na própria página Ferramentas (sem `title`: não aparecem no formulário)
+  predefinicoes: z
+    .array(z.object({ nome: z.string().max(60), minutos: z.number().min(0).max(1440) }))
+    .max(30)
+    .default(() => [
+      { nome: 'Sermão', minutos: 40 },
+      { nome: 'Escola Sabatina', minutos: 45 },
+    ]),
+  qrSalvos: z
+    .array(z.object({ nome: z.string().max(60), link: z.string().max(2000), texto: z.string().max(300) }))
+    .max(30)
+    .default(() => []),
+  mensagensRapidas: z
+    .array(z.string().max(120))
+    .max(20)
+    .default(() => ['Faltam 5 minutos', 'Faltam 2 minutos', 'Pode encerrar']),
+})
+export type ConfigFerramentas = z.infer<typeof EsquemaFerramentas>
+
+export const EsquemaIluminacao = z.object({
+  ativo: z.boolean().default(true).meta({
+    title: 'Mostrar o botão das luzes',
+    description: 'Na barra de baixo da tela de comando: abre o painel para ligar, desligar e escolher um cenário.',
+  }),
+  endereco: z.string().max(200).default('http://luz.local').meta({
+    title: 'Endereço do sistema de iluminação',
+    description: 'O mesmo que abre a página das luzes no navegador.',
+  }),
+  usuario: z.string().max(40).default('Sonoplastia').meta({
+    title: 'Nome no histórico das luzes',
+    description: 'Aparece no histórico do sistema de iluminação quando o programa mexe nas luzes.',
+  }),
+  automacao: z.boolean().default(true).meta({
+    title: 'Liturgia: trocar o cenário das luzes nos itens que pedirem',
+    description: 'Cada item da liturgia pode ter um cenário para quando começa e outro para quando termina (ex.: apagar a frente no vídeo).',
+  }),
+})
+export type ConfigIluminacao = z.infer<typeof EsquemaIluminacao>
+
 /** Preferências da própria tela de comando (sem texto: não aparecem no formulário). */
 export const EsquemaInterface = z.object({
   painelRecolhido: z.boolean().default(false),
@@ -265,6 +393,8 @@ export const EsquemaConfig = z.object({
   biblia: EsquemaBiblia.prefault({}),
   apresentacoes: EsquemaApresentacoes.prefault({}),
   remoto: EsquemaRemoto.prefault({}),
+  ferramentas: EsquemaFerramentas.prefault({}),
+  iluminacao: EsquemaIluminacao.prefault({}),
   interface: EsquemaInterface.prefault({}),
   saidas: z
     .array(EsquemaSaida)

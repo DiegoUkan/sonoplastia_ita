@@ -8,6 +8,7 @@ import {
   Menu,
   nativeTheme,
   net,
+  shell,
   type WebPreferences,
 } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -18,6 +19,7 @@ import type { FiltroMidias, Progresso, SlideMusicaDados } from '../shared/dados'
 import type { Alvo, Comando, Fundo, Telemetria, VersaoMusica } from '../shared/estado'
 import type { AlteracaoLiturgia } from '../shared/liturgia'
 import { CANAIS,type ResultadoSonda, type TipoArquivo } from '../shared/ipc'
+import { enderecoDaLuz } from '../shared/iluminacao'
 import { temposDaVersao } from '../shared/musica'
 import { BibliotecaApresentacoes } from './apresentacoes/biblioteca'
 import { criarConversor } from './apresentacoes/conversao'
@@ -29,6 +31,7 @@ import { Sonda } from './biblioteca/sonda'
 import { caminhos, garantirPastas } from './caminhos'
 import { ArmazemConfig } from './config'
 import { acharFfmpeg, garantirVideoDeTeste } from './ffmpeg'
+import { ClienteIluminacao } from './iluminacao'
 import { iniciarLog, log } from './log'
 import { liberarArquivo, permitirPasta, registrarEsquemaPrivilegiado, tratarProtocoloMidia } from './midia'
 import { Motor } from './motor'
@@ -160,6 +163,17 @@ async function iniciar(): Promise<void> {
   motor.midiasDosSlides = cfg.apresentacoes.midiasDosSlides
   motor.aoTerminarMusica = cfg.musicas.aoTerminar
   motor.definirFundoPadrao(fundoPadrao(cfg))
+  motor.definirVolume(cfg.geral.volume)
+  // o volume mexido no player fica gravado (um pouco depois de soltar, para não gravar a cada passo)
+  let gravarVolume: NodeJS.Timeout | null = null
+  motor.on('volume', (v: number) => {
+    if (gravarVolume) clearTimeout(gravarVolume)
+    gravarVolume = setTimeout(() => {
+      gravarVolume = null
+      const c = armazem.obter()
+      if (c.geral.volume !== v) armazem.salvar({ ...c, geral: { ...c.geral, volume: v } })
+    }, 800)
+  })
   const telemetrias = new Map<string, Telemetria>()
   const pastaRecursos = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
   const ffmpeg = acharFfmpeg(pastaRecursos)
@@ -438,10 +452,32 @@ async function iniciar(): Promise<void> {
     return true
   })
 
+  // --- iluminação (luz.local). No autoteste nada é mandado para as luzes de verdade.
+  const luz = new ClienteIluminacao(() => armazem.obter().iluminacao)
+  if (cfg.iluminacao.ativo && !AUTOTESTE) luz.preparar()
+  const semLuzNoAutoteste = () => {
+    if (AUTOTESTE) throw new Error('Autoteste: as luzes de verdade não são usadas.')
+  }
+  ipcMain.handle(CANAIS.estadoLuz, () => luz.estado())
+  ipcMain.handle(CANAIS.alternarLuz, (_e, id: number) => {
+    semLuzNoAutoteste()
+    return luz.alternar(Number(id))
+  })
+  ipcMain.handle(CANAIS.cenarioLuz, (_e, nome: string) => {
+    semLuzNoAutoteste()
+    return luz.cenario(String(nome))
+  })
+  ipcMain.handle(CANAIS.abrirPaginaLuz, () => {
+    const url = enderecoDaLuz(armazem.obter().iluminacao.endereco)
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+  })
+
   // --- liturgia
   const liturgias = new RepositorioLiturgias(db)
   liturgias.garantirModeloPadrao()
   executorLiturgia = new ExecutorLiturgia({
+    // cenário das luzes no começo e no fim dos itens (se ligado nas configurações)
+    luz: AUTOTESTE ? undefined : (nome) => luz.cenarioSemEsperar(nome),
     motor,
     obterLiturgia: (id) => liturgias.obter(id),
     config: () => armazem.obter(),
@@ -495,7 +531,9 @@ async function iniciar(): Promise<void> {
     avisarLiturgias()
     return true
   })
-  ipcMain.handle(CANAIS.executarItemLiturgia, (_e, liturgiaId: number, itemId: string, alvo: Alvo) => execLit.executar(liturgiaId, itemId, alvo))
+  ipcMain.handle(CANAIS.executarItemLiturgia, (_e, liturgiaId: number, itemId: string, alvo: Alvo, versao?: VersaoMusica) =>
+    execLit.executar(liturgiaId, itemId, alvo, versao === 'cantado' || versao === 'playback' || versao === 'manual' ? versao : undefined),
+  )
   ipcMain.handle(CANAIS.aberturaSecao, (_e, liturgiaId: number, secaoId: string, alvo: Alvo) => execLit.abertura(liturgiaId, secaoId, alvo))
   ipcMain.handle(CANAIS.vizinhoLiturgia, (_e, liturgiaId: number, passo: 1 | -1, alvo: Alvo) => execLit.vizinho(liturgiaId, passo, alvo))
   ipcMain.handle(CANAIS.passoLiturgia, (_e, passo: 1 | -1) => execLit.passo(passo))

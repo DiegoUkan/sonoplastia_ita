@@ -1,5 +1,6 @@
 /** Tipos do estado das saídas, dos comandos e das telas. Usados pelo motor e pelas janelas. */
 import type { MidiaSlide } from './apresentacao'
+import type { EstadoSorteio, EstadoTemporizador, Ferramenta, ModoFerramenta, ModoTemporizador } from './ferramentas'
 
 export type Conteudo =
   | { tipo: 'vazio' }
@@ -127,6 +128,24 @@ export interface EstadoLiturgia {
   /** fundo da seção: fica atrás dos versículos e textos (e das músicas, se `fundoNasMusicas`) */
   fundo: Fundo
   fundoNasMusicas: boolean
+  /**
+   * Item de música "escolher na hora" esperando o operador escolher cantado, playback ou só a letra.
+   * `pedido` muda a cada vez (a tela de comando abre a pergunta de novo).
+   */
+  escolherVersao?: { musicaId: number; titulo: string; pedido: number } | null
+}
+
+/** Temporizador, QR code, mensagem e sorteio (o relógio é da configuração de cada saída). */
+export interface EstadoFerramentas {
+  /** onde cada ferramenta aparece agora: id da saída → modo (saída ausente = não aparece) */
+  exibicao: Record<Ferramenta, Record<string, ModoFerramenta>>
+  temporizador: EstadoTemporizador
+  qr: { link: string; texto: string }
+  /** mensagem rápida (ex.: "Faltam 5 minutos" para o Palco) */
+  mensagem: string
+  sorteio: EstadoSorteio
+  /** fundo das ferramentas em tela cheia: o da seção da liturgia no ar, ou o padrão */
+  fundo: Fundo
 }
 
 export interface EstadoMotor {
@@ -137,6 +156,7 @@ export interface EstadoMotor {
   musica: EstadoMusica | null
   apresentacao: EstadoApresentacao | null
   liturgia: EstadoLiturgia | null
+  ferramentas: EstadoFerramentas
 }
 
 export const TODAS = 'todas'
@@ -169,6 +189,22 @@ export type Comando =
   | { tipo: 'apresentacao:fechar' }
   /** encerra a liturgia em andamento: os fundos voltam ao padrão (o que está no ar continua) */
   | { tipo: 'liturgia:fechar' }
+  /** mostra (no canto ou em tela cheia) ou tira (modo null) uma ferramenta das saídas do alvo */
+  | { tipo: 'ferramenta:mostrar'; ferramenta: Ferramenta; alvo: Alvo; modo: ModoFerramenta | null }
+  /** prepara o temporizador (parado e zerado; o modo 'horario' já conta sozinho) */
+  | { tipo: 'temporizador:definir'; modo: ModoTemporizador; minutos?: number; ate?: string; titulo?: string }
+  | { tipo: 'temporizador:acao'; acao: 'iniciar' | 'pausar' | 'zerar' }
+  /** soma (ou tira, com número negativo) minutos do tempo */
+  | { tipo: 'temporizador:ajustar'; minutos: number }
+  | { tipo: 'temporizador:titulo'; titulo: string }
+  | { tipo: 'qr:definir'; link: string; texto: string }
+  | { tipo: 'mensagem:definir'; texto: string }
+  /** tela do sorteio esperando (sem resultado) */
+  | { tipo: 'sorteio:preparar'; titulo: string }
+  /** sorteia `quantidade` nomes da lista (o motor escolhe, para todas as saídas mostrarem o mesmo) */
+  | { tipo: 'sorteio:sortear'; lista: string[]; quantidade: number; semRepetir: boolean; duracaoMs: number; titulo?: string }
+  /** esquece os já sorteados */
+  | { tipo: 'sorteio:zerar' }
 
 export interface TelemetriaVideo {
   posicao: number

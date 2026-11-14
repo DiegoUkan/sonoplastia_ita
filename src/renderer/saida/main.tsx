@@ -67,6 +67,8 @@ function Saida() {
         aoTelemetriaVideo={enviar}
         telemetriaVideo={telemetriaOutra}
         saidaAudio={config.geral.saidaAudio}
+        ferramentas={estado.ferramentas}
+        cfgFerramentas={config.ferramentas}
       />
     </div>
   )

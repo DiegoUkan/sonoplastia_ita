@@ -155,6 +155,8 @@ function CartaoSaida({ saida: s, estado, config, telas, telemetrias }: Props & {
               resolucao={`${l} × ${a}`}
               miniatura
               telemetriaVideo={t?.video}
+              ferramentas={estado.ferramentas}
+              cfgFerramentas={config.ferramentas}
             />
           }
         />

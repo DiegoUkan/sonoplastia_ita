@@ -146,6 +146,10 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     await navegar('biblia', { seletor: 'input[placeholder^="jo 3 16"]', texto: 'jo 3 16', enter: true })
     relatorio.bibliaNoAr = ctx.motor.estado.saidas.publico?.conteudo
     await capturar('3-biblia')
+    // a tabela (livros, capítulos, versículos) com João 3 aberto e o 16 no ar
+    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tabela')?.click()`)
+    await esperar(800)
+    await capturar('3b-biblia-tabela', 'comando')
   })
 
   await passo('musica', async () => {
@@ -197,10 +201,13 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
 
   await passo('apresentacao', async () => {
     // arquivos reais deste PC: um .pptx com vídeo e áudio embutidos (ou um simples) e um PDF
-    const pptx = [
-      join(homedir(), 'Desktop', 'materiais sonoplastia', 'Aventureiros', 'IDEAIS EQUIPE aventureiros - PP (1).pptx'),
-      'C:\\Holyrics\\Holyrics\\files\\media\\file\\Meu_Lugar_No_Mundo.pptx',
-    ].find((c) => existsSync(c))
+    // SONOPLASTIA_AUTOTESTE_PULAR=pptx: só o PDF (não abre o PowerPoint)
+    const pptx = pular.includes('pptx')
+      ? undefined
+      : [
+          join(homedir(), 'Desktop', 'materiais sonoplastia', 'Aventureiros', 'IDEAIS EQUIPE aventureiros - PP (1).pptx'),
+          'C:\\Holyrics\\Holyrics\\files\\media\\file\\Meu_Lugar_No_Mundo.pptx',
+        ].find((c) => existsSync(c))
     const pdf = ['C:\\Holyrics\\Holyrics\\files\\media\\file\\Mordomia.pdf'].find((c) => existsSync(c))
     const arquivos = [pptx, pdf].filter((c): c is string => !!c)
     if (!arquivos.length) {
@@ -259,6 +266,11 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
       ctx.abrirApresentacao(d.id, 'todas', 1)
       await esperar(1500)
       await capturar('9-pdf')
+      // último slide: o Palco avisa ("Último slide"), o Público não muda
+      fazer({ tipo: 'apresentacao:slide', indice: d.total - 1 })
+      await esperar(1200)
+      relatorio.ultimoSlide = { indice: ctx.motor.estado.apresentacao?.indice, total: d.total }
+      await capturar('9b-ultimo-slide')
     }
     fazer({ tipo: 'apresentacao:fechar' })
   })
@@ -383,7 +395,7 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     const id = ctx.liturgias.copiar(modelo.id, { modelo: false, data: dataDeHoje() })
     const l = ctx.liturgias.obter(id)!
     const video = ctx.midias.listar({ tipo: 'video' })[0]
-    const comum = { titulo: '', alvo: '', ativo: true, duracaoMin: 5, observacao: '', avancar: false }
+    const comum = { titulo: '', alvo: '', ativo: true, duracaoMin: 5, observacao: '', avancar: false, luzInicio: '', luzFim: '' }
     const texto: ItemLiturgia = { ...comum, id: novoId(), tipo: 'texto', texto: 'Bem-vindos ao culto' }
     const verso: ItemLiturgia = { ...comum, id: novoId(), tipo: 'biblia', referencia: 'jo 3 16', sigla: '' }
     const itensVideo: ItemLiturgia[] = video ? [{ ...comum, id: novoId(), tipo: 'midia', midiaId: video.id, midiaTipo: 'video', titulo: video.nome, avancar: true }] : []
@@ -416,6 +428,115 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     await capturar('L3-liturgia-adicionar', 'comando')
     relatorio.liturgia = r
     ctx.executorLiturgia.fechar()
+  })
+
+  await passo('ferramentas', async () => {
+    // relógio no Palco (padrão), temporizador no canto do Palco, QR no canto do Público, mensagem no Palco
+    const r: Record<string, unknown> = {}
+    fazer({ tipo: 'mostrar', alvo: 'todas', conteudo: { tipo: 'texto', texto: 'Porque Deus amou o mundo de tal maneira' } })
+    fazer({ tipo: 'temporizador:definir', modo: 'regressivo', minutos: 40, titulo: 'Sermão' })
+    fazer({ tipo: 'temporizador:acao', acao: 'iniciar' })
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'temporizador', alvo: 'palco', modo: 'canto' })
+    fazer({ tipo: 'qr:definir', link: 'https://www.adventistas.org', texto: 'Site da igreja' })
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'qr', alvo: 'publico', modo: 'canto' })
+    fazer({ tipo: 'mensagem:definir', texto: 'Faltam 5 minutos' })
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'mensagem', alvo: 'palco', modo: 'canto' })
+    await navegar('ferramentas')
+    await esperar(1200)
+    await capturar('F1-ferramentas-canto')
+    // sorteio em tela cheia no Público (sem animação, para a captura mostrar o resultado)
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'sorteio', alvo: 'publico', modo: 'tela' })
+    fazer({ tipo: 'sorteio:sortear', lista: ['Ana Paula', 'Bruno', 'Carla', 'Davi'], quantidade: 1, semRepetir: true, duracaoMs: 0, titulo: 'Sorteio do brinde' })
+    // temporizador em tela cheia no Palco
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'temporizador', alvo: 'palco', modo: 'tela' })
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'mensagem', alvo: 'palco', modo: null })
+    await esperar(1200)
+    await capturar('F2-sorteio-e-temporizador')
+    r.sorteio = ctx.motor.estado.ferramentas.sorteio.resultado
+    // tamanho do relógio no canto do Palco (a pílula com só a hora)
+    const relogioDoPalco = () =>
+      ctx.telas
+        .janelasAbertas()
+        .find((j) => j.saidaId === 'palco')
+        ?.win.webContents.executeJavaScript(
+          `[...document.querySelectorAll('div')].filter((d) => /^\\d{2}:\\d{2}$/.test(d.textContent.trim()) && d.style.fontSize.endsWith('cqh')).map((d) => d.style.fontSize)`,
+        )
+    r.relogioTextoCurto = await relogioDoPalco()
+    // abrir outra coisa com as ferramentas em tela cheia: o sorteio sai do Público, o temporizador do
+    // Palco vai para o canto; o versículo comprido chega no relógio do Palco, que diminui
+    fazer({
+      tipo: 'mostrar',
+      alvo: 'todas',
+      conteudo: {
+        tipo: 'versiculo',
+        texto:
+          'Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito, para que todo aquele que nele crê não pereça, mas tenha a vida eterna. Porquanto Deus enviou o seu Filho ao mundo, não para que julgasse o mundo, mas para que o mundo fosse salvo por ele.',
+        referencia: 'João 3:16-17 ARA',
+        segundo: null,
+      },
+    })
+    await esperar(1200)
+    await capturar('F2b-ferramentas-dao-lugar')
+    r.depoisDeAbrir = structuredClone(ctx.motor.estado.ferramentas.exibicao)
+    r.relogioTextoGrande = await relogioDoPalco()
+    for (const f of ['temporizador', 'qr', 'mensagem', 'sorteio'] as const) fazer({ tipo: 'ferramenta:mostrar', ferramenta: f, alvo: 'todas', modo: null })
+
+    // música só com a letra: o painel grande dos trechos na tela de comando
+    ctx.motor.abrirMusica({
+      musicaId: 999_999,
+      titulo: 'Música de teste (só a letra)',
+      album: '',
+      versao: 'manual',
+      slides: [
+        { texto: 'Primeiro trecho da letra\ncom duas linhas', ms: 0 },
+        { texto: 'Segundo trecho', ms: 0 },
+        { texto: 'Terceiro trecho', ms: 0 },
+      ],
+      alvo: 'todas',
+      fundoUrl: null,
+      audioUrl: null,
+      tituloNaIntroducao: true,
+    })
+    fazer({ tipo: 'musica:slide', indice: 0, origem: 'operador' })
+    await esperar(900)
+    await capturar('F3-letra-manual', 'comando')
+    // a seta da tela de comando passa o trecho, em qualquer página
+    await noComando(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))`)
+    await esperar(500)
+    r.trechoDepoisDaSeta = ctx.motor.estado.musica?.indice
+    fazer({ tipo: 'musica:fechar' })
+
+    // música "escolher na hora" da liturgia: a pergunta na tela de comando
+    const modelo = ctx.liturgias.listar().find((l) => l.modelo)
+    if (modelo) {
+      const id = ctx.liturgias.copiar(modelo.id, { modelo: false, data: null, nome: 'Teste das ferramentas' })
+      const l = ctx.liturgias.obter(id)!
+      const musica = ctx.musicas.listar('')[0]
+      const comum = { alvo: '', ativo: true, duracaoMin: null, observacao: '', avancar: false, luzInicio: '', luzFim: '' }
+      const itens: ItemLiturgia[] = [
+        { ...comum, id: novoId(), tipo: 'musica', musicaId: musica?.id ?? 999_999, versao: 'perguntar', titulo: musica?.titulo ?? 'Música' },
+        { ...comum, id: novoId(), tipo: 'temporizador', titulo: 'O culto começa em', temporizadorModo: 'regressivo', minutos: 5, ate: '', iniciar: true, modo: 'tela', manter: false },
+      ]
+      const [s1, ...resto] = l.secoes
+      ctx.liturgias.salvar(id, { ...l, secoes: [{ ...s1!, itens }, ...resto] })
+      await navegar('liturgia')
+      ctx.executorLiturgia.executar(id, itens[0]!.id, 'todas')
+      await esperar(1000)
+      await capturar('F4-escolher-versao', 'comando')
+      r.escolher = ctx.motor.estado.liturgia?.escolherVersao ?? null
+      ctx.executorLiturgia.executar(id, itens[1]!.id, 'todas')
+      await esperar(1000)
+      await capturar('F5-temporizador-da-liturgia')
+      ctx.executorLiturgia.fechar()
+      fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'temporizador', alvo: 'todas', modo: null })
+    }
+
+    // painel das luzes (só lê o estado das luzes; no autoteste nada é mandado para elas)
+    await noComando(`[...document.querySelectorAll('footer button')].find((b) => b.textContent.trim() === 'Luzes')?.click()`)
+    await esperar(2500)
+    await capturar('F6-luzes', 'comando')
+    await noComando(`document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`)
+    relatorio.ferramentas = r
   })
 
   await passo('painel-recolhido', async () => {

@@ -2,9 +2,9 @@
  * Página "Bíblia": digite "jo 3 16", "sl 23", "1 co 13 4-7" ou palavras. Enter mostra; o passador
  * (PageDown/PageUp) anda versículo a versículo, dividindo os longos em mais de uma tela.
  */
-import { BookOpen, ChevronLeft, ChevronRight, Download, FileJson, Link, Search, Settings2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { LIVROS, type Livro } from '../../shared/biblia/livros'
+import { AlignLeft, BookOpen, ChevronLeft, ChevronRight, Download, FileJson, LayoutGrid, Link, Search, Settings2 } from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { type GrupoLivro, grupoDoLivro, LIVROS, type Livro } from '../../shared/biblia/livros'
 import { formatarReferencia, interpretarReferencia } from '../../shared/biblia/referencia'
 import type { Config } from '../../shared/config'
 import type { ArquivoBibliaEncontrado, Progresso, ResultadoBuscaBiblia, VersaoBiblia, VersiculoTexto } from '../../shared/dados'
@@ -12,7 +12,7 @@ import { dividirTexto } from '../../shared/texto'
 import { api } from '../compartilhado/ganchos'
 import type { TeclaPagina } from './App'
 import { mensagemDeErro } from './acoes'
-import { BarraProgresso, Botao, classeEntrada } from './ui'
+import { BarraProgresso, Botao, classeEntrada, Segmentado } from './ui'
 
 const digitando = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select')
 
@@ -44,6 +44,8 @@ export function PaginaBiblia({ alvo, config, registrarTeclas }: { alvo: string; 
   const [historico, setHistorico] = useState<NoAr[]>([])
   const [erro, setErro] = useState<string | null>(null)
   const [painelVersoes, setPainelVersoes] = useState(false)
+  /** tabela (livros, capítulos e versículos em botões) ou texto (busca e o capítulo para ler) */
+  const [modo, setModo] = useState<'tabela' | 'texto'>('tabela')
   const segundas = useRef(new Map<string, VersiculoTexto[]>())
   const lista = useRef<HTMLDivElement>(null)
 
@@ -220,17 +222,35 @@ export function PaginaBiblia({ alvo, config, registrarTeclas }: { alvo: string; 
             className={`${classeEntrada} w-full pl-8 text-[15px]`}
             placeholder="jo 3 16 · sl 23 · 1 co 13 4-7 · ou palavras (Enter mostra)"
             value={texto}
-            onChange={(e) => setTexto(e.target.value)}
+            onChange={(e) => {
+              setTexto(e.target.value)
+              // digitando: a busca aparece no modo texto
+              if (e.target.value.trim()) setModo('texto')
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void interpretar(texto, true).catch((err) => setErro(mensagemDeErro(err)))
             }}
           />
         </div>
+        <Segmentado
+          tamanho="sm"
+          valor={modo}
+          aoMudar={setModo}
+          opcoes={[
+            { valor: 'tabela', rotulo: <span className="flex items-center gap-1"><LayoutGrid className="size-3.5" />Tabela</span>, titulo: 'Escolher clicando no livro, no capítulo e no versículo' },
+            { valor: 'texto', rotulo: <span className="flex items-center gap-1"><AlignLeft className="size-3.5" />Texto</span>, titulo: 'O capítulo para ler, e a busca por palavras' },
+          ]}
+        />
         <Botao variante="fantasma" icone={Settings2} onClick={() => setPainelVersoes(true)} title="Importar versões" />
       </div>
       {erro && <div className="border-b border-borda bg-perigo/10 px-5 py-2 text-sm text-perigo-texto">{erro}</div>}
 
-      <div ref={lista} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      {modo === 'tabela' && (
+        <div className="min-h-0 flex-1">
+          <TabelaBiblia sigla={sigla} cap={cap} noAr={noAr} faixa={faixa} abrirCapitulo={abrirCapitulo} mostrar={mostrar} />
+        </div>
+      )}
+      <div ref={lista} className={`min-h-0 flex-1 overflow-y-auto px-5 py-4 ${modo === 'tabela' ? 'hidden' : ''}`}>
         {livros && (
           <div>
             <p className="mb-2 text-sm text-suave">Qual livro?</p>
@@ -347,6 +367,161 @@ export function PaginaBiblia({ alvo, config, registrarTeclas }: { alvo: string; 
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+const COR_GRUPO: Record<GrupoLivro, string> = {
+  lei: 'bg-biblia-lei',
+  historia: 'bg-biblia-historia',
+  poesia: 'bg-biblia-poesia',
+  profetas: 'bg-biblia-profetas',
+  evangelhos: 'bg-biblia-evangelhos',
+  atos: 'bg-biblia-atos',
+  cartas: 'bg-biblia-cartas',
+  apocalipse: 'bg-biblia-apocalipse',
+}
+
+function QuadroTabela({ titulo, children, rodape }: { titulo: ReactNode; children: ReactNode; rodape?: ReactNode }) {
+  return (
+    <div className="flex min-h-0 flex-col rounded-lg border border-borda bg-painel">
+      <div className="shrink-0 border-b border-borda px-3 py-1.5 text-xs font-semibold text-suave">{titulo}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">{children}</div>
+      {rodape && <div className="shrink-0 border-t border-borda px-3 py-1.5">{rodape}</div>}
+    </div>
+  )
+}
+
+const classeNumero = (ativo: boolean, faixa = false) =>
+  `h-9 cursor-pointer rounded-md text-sm font-semibold tabular-nums transition-colors ${
+    ativo ? 'bg-destaque text-sobre-destaque' : faixa ? 'bg-destaque/15 text-destaque-texto' : 'border border-borda bg-painel-2 hover:bg-hover'
+  }`
+
+/**
+ * Escolha rápida em tabela: os 66 livros (cores por grupo, como nas Bíblias de estudo); embaixo, os
+ * capítulos do livro e os versículos do capítulo. Clicar no versículo mostra; o passador continua.
+ */
+function TabelaBiblia({
+  sigla,
+  cap,
+  noAr,
+  faixa,
+  abrirCapitulo,
+  mostrar,
+}: {
+  sigla: string
+  cap: Capitulo | null
+  noAr: NoAr | null
+  faixa: { inicio: number; fim: number } | null
+  abrirCapitulo: (livro: number, capitulo: number) => Promise<Capitulo | null>
+  mostrar: (c: Capitulo, versiculo: number) => Promise<void>
+}) {
+  const [livroSel, setLivroSel] = useState<number | null>(cap?.livro ?? null)
+  const [total, setTotal] = useState(cap?.total ?? 0)
+  const [sobre, setSobre] = useState<number | null>(null)
+  // o capítulo aberto por outro caminho (digitado, histórico, passador) aparece marcado aqui
+  const capLivro = cap?.livro
+  useEffect(() => {
+    if (capLivro) setLivroSel(capLivro)
+  }, [capLivro])
+  useEffect(() => {
+    if (!livroSel || !sigla) return
+    let vivo = true
+    void api.totalCapitulos(sigla, livroSel).then((n) => vivo && setTotal(n))
+    return () => {
+      vivo = false
+    }
+  }, [livroSel, sigla])
+
+  const capSel = cap && cap.livro === livroSel ? cap : null
+  const versiculoVisto = sobre ?? (noAr && capSel && noAr.livro === capSel.livro && noAr.capitulo === capSel.capitulo ? noAr.versiculo : null)
+  const textoVisto = versiculoVisto !== null ? capSel?.versiculos.find((v) => v.versiculo === versiculoVisto)?.texto : null
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3 px-5 py-3">
+      <div className="grid shrink-0 grid-cols-11 gap-1">
+        {LIVROS.map((l) => (
+          <button
+            key={l.n}
+            type="button"
+            title={l.nome}
+            onClick={(e) => {
+              e.currentTarget.blur()
+              setLivroSel(l.n)
+            }}
+            className={`flex h-11 min-w-0 cursor-pointer flex-col items-center justify-center rounded text-white transition ${COR_GRUPO[grupoDoLivro(l.n)]} ${
+              livroSel === l.n ? 'ring-2 ring-texto ring-offset-1 ring-offset-fundo brightness-75' : 'hover:brightness-110'
+            }`}
+          >
+            <span className="text-[15px] font-semibold leading-none">{l.abrev}</span>
+            <span className="mt-0.5 w-full truncate px-0.5 text-center text-[9px] leading-none opacity-90">{l.nome}</span>
+          </button>
+        ))}
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-3">
+        <QuadroTabela titulo={livroSel ? `Capítulos de ${LIVROS[livroSel - 1]?.nome}` : 'Capítulos'}>
+          {livroSel ? (
+            <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))' }}>
+              {Array.from({ length: total }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={(e) => {
+                    e.currentTarget.blur()
+                    void abrirCapitulo(livroSel, i + 1)
+                  }}
+                  className={classeNumero(capSel?.capitulo === i + 1)}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="p-2 text-sm text-suave">Escolha o livro acima.</p>
+          )}
+        </QuadroTabela>
+        <QuadroTabela
+          titulo={capSel ? `Versículos de ${formatarReferencia(capSel.livro, capSel.capitulo)} (${sigla})` : 'Versículos'}
+          rodape={
+            capSel && (
+              <p className="line-clamp-2 text-xs text-suave">
+                {textoVisto ? (
+                  <>
+                    <b className="text-texto">{versiculoVisto}</b> {textoVisto}
+                  </>
+                ) : (
+                  'Clique no versículo para mostrar. Passe o mouse para ler.'
+                )}
+              </p>
+            )
+          }
+        >
+          {capSel ? (
+            <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))' }} onMouseLeave={() => setSobre(null)}>
+              {capSel.versiculos.map((v) => {
+                const ehNoAr = noAr?.livro === capSel.livro && noAr.capitulo === capSel.capitulo && noAr.versiculo === v.versiculo
+                const naFaixa = !!faixa && v.versiculo >= faixa.inicio && v.versiculo <= faixa.fim
+                return (
+                  <button
+                    key={v.versiculo}
+                    type="button"
+                    onMouseEnter={() => setSobre(v.versiculo)}
+                    onClick={(e) => {
+                      e.currentTarget.blur()
+                      void mostrar(capSel, v.versiculo)
+                    }}
+                    className={classeNumero(ehNoAr, naFaixa)}
+                  >
+                    {v.versiculo}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="p-2 text-sm text-suave">{livroSel ? 'Escolha o capítulo.' : 'Escolha o livro e o capítulo.'}</p>
+          )}
+        </QuadroTabela>
       </div>
     </div>
   )

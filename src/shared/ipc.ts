@@ -17,6 +17,7 @@ import type {
   VersiculoTexto,
 } from './dados'
 import type { Alvo, ArquivoEscolhido, Comando, EstadoMotor, EstadoTelas, Telemetria, VersaoMusica } from './estado'
+import type { EstadoLuz } from './iluminacao'
 
 export const CANAIS = {
   comando: 'motor:comando',
@@ -84,6 +85,11 @@ export const CANAIS = {
   escolherFundoSecao: 'liturgia:escolher-fundo',
   importarFundoSecao: 'liturgia:importar-fundo',
   liturgiasMudaram: 'liturgia:mudaram',
+  // iluminação (luz.local)
+  estadoLuz: 'luz:estado',
+  alternarLuz: 'luz:alternar',
+  cenarioLuz: 'luz:cenario',
+  abrirPaginaLuz: 'luz:abrir-pagina',
   // controle remoto (celular)
   statusRemoto: 'remoto:status',
   remotoMudou: 'remoto:mudou',
@@ -165,7 +171,15 @@ export interface ApiSonoplastia {
   salvarLiturgia(id: number, a: AlteracaoLiturgia): Promise<Liturgia>
   /** pergunta antes; devolve true se excluiu */
   excluirLiturgia(id: number): Promise<boolean>
-  executarItemLiturgia(liturgiaId: number, itemId: string, alvo: Alvo): Promise<void>
+  /** `versao`: a escolhida para uma música "escolher na hora" */
+  executarItemLiturgia(liturgiaId: number, itemId: string, alvo: Alvo, versao?: VersaoMusica): Promise<void>
+  /** iluminação: estado, nomes e cenários (nunca rejeita: sem conexão, `conectado` = false) */
+  estadoLuz(): Promise<EstadoLuz>
+  /** liga/desliga um relé; devolve o estado novo */
+  alternarLuz(id: number): Promise<boolean>
+  cenarioLuz(nome: string): Promise<void>
+  /** abre a página do sistema de iluminação no navegador */
+  abrirPaginaLuz(): Promise<void>
   aberturaSecao(liturgiaId: number, secaoId: string, alvo: Alvo): Promise<void>
   /** põe no ar o próximo (1) ou o anterior (-1) item ativo; devolve o id dele ou null */
   vizinhoLiturgia(liturgiaId: number, passo: 1 | -1, alvo: Alvo): Promise<string | null>

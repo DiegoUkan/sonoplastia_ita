@@ -14,6 +14,7 @@
     "autoteste": "electron-vite build && electron . --autoteste"
   },
   "dependencies": {
+    "qrcode-generator": "1.4.4",
     "zod": "4.6.7"
   },
   "devDependencies": {

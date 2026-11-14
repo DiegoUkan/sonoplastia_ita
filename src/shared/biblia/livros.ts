@@ -88,6 +88,20 @@ export const LIVROS: Livro[] = DADOS.map(([nome, abrev, extras], i) => ({
   chaves: [...new Set([chave(nome), chave(abrev), ...extras.map(chave)])].filter((k) => !(i === 17 && k === 'jo')),
 }))
 
+/** Grupo do livro (cores da tabela de livros). */
+export type GrupoLivro = 'lei' | 'historia' | 'poesia' | 'profetas' | 'evangelhos' | 'atos' | 'cartas' | 'apocalipse'
+
+export function grupoDoLivro(n: number): GrupoLivro {
+  if (n <= 5) return 'lei'
+  if (n <= 17) return 'historia'
+  if (n <= 22) return 'poesia'
+  if (n <= 39) return 'profetas'
+  if (n <= 43) return 'evangelhos'
+  if (n === 44) return 'atos'
+  if (n <= 65) return 'cartas'
+  return 'apocalipse'
+}
+
 export function livro(n: number): Livro | undefined {
   return LIVROS[n - 1]
 }

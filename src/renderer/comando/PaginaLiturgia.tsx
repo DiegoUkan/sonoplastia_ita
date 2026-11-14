@@ -55,7 +55,7 @@ import { api, useAgora } from '../compartilhado/ganchos'
 import type { TeclaPagina } from './App'
 import { mensagemDeErro } from './acoes'
 import { arquivosDoArraste, TIPO_ARRASTE } from './arrastar'
-import { completarItem, detalheDoItem, iconeDoItem, PainelAdicionar, PainelEditar } from './PainelItemLiturgia'
+import { completarItem, detalheDoItem, iconeDoItem, MiniaturaItem, PainelAdicionar, PainelEditar, useMiniaturasLiturgia } from './PainelItemLiturgia'
 import { Botao, classeEntrada, Interruptor, Selo } from './ui'
 
 const digitando = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select')
@@ -86,6 +86,7 @@ export function PaginaLiturgia({ alvo, estado, config, registrarTeclas }: Props)
   const [lista, setLista] = useState<ResumoLiturgia[] | null>(null)
   const [selId, setSelId] = useState<number | null>(null)
   const [doc, setDoc] = useState<Liturgia | null>(null)
+  const miniaturas = useMiniaturasLiturgia(doc?.secoes ?? null)
   const [painel, setPainel] = useState<Painel>(null)
   const [aviso, setAviso] = useState<string | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
@@ -231,7 +232,8 @@ export function PaginaLiturgia({ alvo, estado, config, registrarTeclas }: Props)
       const ant = k === 'PageUp' || k === 'ArrowLeft' || k === 'ArrowUp'
       if (!prox && !ant) return false
       const t = p?.item.tipo
-      const temDentro = t === 'biblia' || (t === 'apresentacao' && !!est.apresentacao) || (t === 'musica' && !!est.musica)
+      // no sorteio, o "próximo" sorteia
+      const temDentro = t === 'biblia' || t === 'sorteio' || (t === 'apresentacao' && !!est.apresentacao) || (t === 'musica' && !!est.musica)
       // sem "dentro" (vídeo, texto…): a tecla segue para a apresentação no ar, se houver
       if (!temDentro) return false
       void api.passoLiturgia(prox ? 1 : -1)
@@ -419,6 +421,7 @@ export function PaginaLiturgia({ alvo, estado, config, registrarTeclas }: Props)
                   itemNoAr={noAr?.itemId ?? null}
                   editado={painel?.tipo === 'editar' ? painel.itemId : null}
                   liturgiaId={doc.id}
+                  miniaturas={miniaturas}
                   aoMudar={(p) => mudarSecao(s.id, p)}
                   aoMover={(p) => moverSecao(s.id, p)}
                   aoRemover={() => removerSecao(s)}
@@ -452,7 +455,7 @@ export function PaginaLiturgia({ alvo, estado, config, registrarTeclas }: Props)
         {painel && (
         <aside className="flex w-80 shrink-0 flex-col border-l border-borda bg-painel">
           {secaoAdicionar ? (
-            <PainelAdicionar secaoNome={secaoAdicionar.nome} aoAdicionar={(i) => adicionarItem(secaoAdicionar.id, i)} aoFechar={() => setPainel(null)} />
+            <PainelAdicionar secaoNome={secaoAdicionar.nome} config={config} aoAdicionar={(i) => adicionarItem(secaoAdicionar.id, i)} aoFechar={() => setPainel(null)} />
           ) : itemEditado ? (
             <PainelEditar
               key={itemEditado.item.id}
@@ -511,6 +514,8 @@ interface PropsSecao {
   itemNoAr: string | null
   editado: string | null
   liturgiaId: number
+  /** imagem de cada item (mídia, slide, música), pelo id do item */
+  miniaturas: Map<string, string>
   aoMudar: (p: Partial<SecaoLiturgia>) => void
   aoMover: (p: 1 | -1) => void
   aoRemover: () => void
@@ -652,6 +657,7 @@ function CartaoSecao(p: PropsSecao) {
             editado={p.editado === item.id}
             linhaAntes={soltarEm === i}
             liturgiaId={p.liturgiaId}
+            miniatura={p.miniaturas.get(item.id) ?? null}
             aoSobre={(antes) => setSoltarEm(antes ? i : i + 1)}
             aoEditar={() => p.aoEditar(item.id)}
             aoExecutar={() => p.aoExecutar(item.id)}
@@ -677,6 +683,7 @@ function LinhaItem(p: {
   editado: boolean
   linhaAntes: boolean
   liturgiaId: number
+  miniatura: string | null
   aoSobre: (antes: boolean) => void
   aoEditar: () => void
   aoExecutar: () => void
@@ -713,7 +720,7 @@ function LinhaItem(p: {
         <span className={`w-10 shrink-0 text-right text-[11px] tabular-nums ${p.noAr ? 'text-sobre-destaque/80' : 'text-apagado'}`}>
           {p.hora !== undefined ? formatarHora(p.hora) : ''}
         </span>
-        <Icone className={`size-4 shrink-0 ${p.noAr ? '' : 'text-suave'}`} />
+        <MiniaturaItem item={it} imagem={p.miniatura} icone={Icone} noAr={p.noAr} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{tituloDoItem(it)}</span>
           <span className={`block truncate text-[11px] ${p.noAr ? 'text-sobre-destaque/80' : 'text-suave'}`}>{detalheDoItem(it, p.config)}</span>

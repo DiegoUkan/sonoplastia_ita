@@ -4,10 +4,12 @@
  * usam unidades de contêiner (cqh/cqw), então a miniatura fica proporcional à saída real.
  */
 import { Film } from 'lucide-react'
-import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
-import type { Ajuste, ConfigSaida, ConfigTelaEspera } from '../../shared/config'
-import type { Conteudo, ControleMidia, EstadoSaida, Fundo, ModoTela, TelemetriaVideo } from '../../shared/estado'
+import { type CSSProperties, type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import type { Ajuste, ConfigFerramentas, ConfigSaida, ConfigTelaEspera } from '../../shared/config'
+import type { Conteudo, ControleMidia, EstadoFerramentas, EstadoSaida, Fundo, ModoTela, TelemetriaVideo } from '../../shared/estado'
+import type { FaixaVertical } from '../../shared/ferramentas'
 import { urlMidia } from '../../shared/midia'
+import { CamadaFerramentasCanto, CamadaFerramentasTela } from './Ferramentas'
 import { TextoAjustado } from './TextoAjustado'
 
 const AJUSTE_CSS: Record<Ajuste, CSSProperties['objectFit']> = {
@@ -30,6 +32,9 @@ export interface PropsCamadas {
   aoTelemetriaVideo?: (v: TelemetriaVideo | null) => void
   /** dispositivo de som (deviceId) para o vídeo */
   saidaAudio?: string
+  /** relógio, temporizador, QR, mensagem e sorteio (sem isso, só o relógio da configuração) */
+  ferramentas?: EstadoFerramentas
+  cfgFerramentas?: ConfigFerramentas
 }
 
 const COBRE_CONTEUDO: ModoTela[] = ['logo', 'preto']
@@ -61,9 +66,16 @@ export function Camadas(p: PropsCamadas) {
   const ehTexto = tipo === 'letra' || tipo === 'versiculo' || tipo === 'texto'
   // o slide já traz o fundo dele; a imagem da música por trás só atrapalharia
   const semFundo = (tipo === 'letra' && !config.musicaComFundo) || ((tipo === 'versiculo' || tipo === 'texto') && !config.textoComFundo) || tipo === 'slide'
+  // onde o texto no ar ficou na altura da tela (o relógio do canto diminui se o texto chega nele)
+  const [faixaTexto, setFaixaTexto] = useState<FaixaVertical | null>(null)
+  const aoMedirTexto = useCallback((f: FaixaVertical) => {
+    setFaixaTexto((a) => (a && Math.abs(a.topo - f.topo) < 0.002 && Math.abs(a.base - f.base) < 0.002 ? a : f))
+  }, [])
+  const comConteudo = tipo !== 'vazio' && saida.tela !== 'limpar'
+  const textoVisivel = ehTexto && saida.tela === 'normal' ? faixaTexto : null
   return (
     <div data-tela className="relative h-full w-full overflow-hidden" style={{ background: config.corFundo, containerType: 'size' }}>
-      {!semFundo && <CamadaFundo fundo={saida.fundo} ms={ms} escurecer={ehTexto} />}
+      {!semFundo && <CamadaFundo fundo={saida.fundo} ms={ms} escurecer={ehTexto ? config.fundoEscurecer / 100 : 0} />}
       <div
         className="absolute"
         style={{
@@ -84,14 +96,30 @@ export function Camadas(p: PropsCamadas) {
               telemetriaVideo={p.telemetriaVideo}
               aoTelemetriaVideo={p.aoTelemetriaVideo}
               saidaAudio={p.saidaAudio}
+              aoMedirTexto={aoMedirTexto}
             />
           )}
         </ConteudoComTransicao>
       </div>
-      {/* sobreposições (relógio, temporizador, QR…) entram aqui na Fase 6 */}
+      {/* ferramentas em tela cheia: por cima do conteúdo, embaixo do Logo */}
+      {p.cfgFerramentas && (
+        <CamadaFerramentasTela saidaId={saida.id} config={config} cfg={p.cfgFerramentas} ferramentas={p.ferramentas} ms={ms} comConteudo={comConteudo} />
+      )}
       <Cortina visivel={saida.tela === 'logo'} transicao={transicaoSobCobertura(saida.tela, anterior, COBRE_LOGO, ms)}>
         <TelaEspera espera={p.espera} />
       </Cortina>
+      {/* ferramentas no canto: por cima do Logo (o relógio e a contagem continuam na tela de espera) */}
+      {p.cfgFerramentas && (
+        <CamadaFerramentasCanto
+          saidaId={saida.id}
+          config={config}
+          cfg={p.cfgFerramentas}
+          ferramentas={p.ferramentas}
+          ms={ms}
+          comConteudo={comConteudo}
+          texto={textoVisivel}
+        />
+      )}
       <Cortina visivel={saida.tela === 'preto'} transicao={ms > 0 ? `opacity ${ms}ms ease` : 'none'}>
         <div className="h-full w-full bg-black" />
       </Cortina>
@@ -107,7 +135,8 @@ function Cortina({ visivel, transicao, children }: { visivel: boolean; transicao
   )
 }
 
-function CamadaFundo({ fundo, ms, escurecer }: { fundo: Fundo; ms: number; escurecer: boolean }) {
+/** `escurecer`: 0 a 1, quanto de preto vai por cima da imagem (só atrás de letra, versículo e texto). */
+function CamadaFundo({ fundo, ms, escurecer }: { fundo: Fundo; ms: number; escurecer: number }) {
   if (fundo.tipo === 'nenhum') return null
   return (
     <>
@@ -119,8 +148,8 @@ function CamadaFundo({ fundo, ms, escurecer }: { fundo: Fundo; ms: number; escur
         className="absolute inset-0 h-full w-full"
         style={{ objectFit: 'cover', animation: ms > 0 ? `entrar ${ms}ms ease both` : undefined }}
       />
-      {/* escurece um pouco o fundo atrás de letra e versículo, para o texto ficar legível */}
-      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,.35)', opacity: escurecer ? 1 : 0, transition: `opacity ${ms}ms ease` }} />
+      {/* escurece o fundo atrás de letra e versículo (quanto, a saída escolhe); a sombra do texto faz o resto */}
+      <div className="absolute inset-0 bg-black" style={{ opacity: escurecer, transition: `opacity ${ms}ms ease` }} />
     </>
   )
 }
@@ -176,13 +205,21 @@ interface PropsConteudo {
   telemetriaVideo?: TelemetriaVideo | null
   aoTelemetriaVideo?: (v: TelemetriaVideo | null) => void
   saidaAudio?: string
+  /** onde o texto principal (letra, versículo, texto) ficou na tela; só o conteúdo que está entrando avisa */
+  aoMedirTexto?: (f: FaixaVertical) => void
 }
 
-const sombraTexto = (ligada: boolean) => (ligada ? '0 0.35cqh 1.2cqh rgba(0,0,0,.85), 0 0 0.35cqh rgba(0,0,0,.9)' : 'none')
+/**
+ * Sombra atrás do texto: um contorno escuro bem junto das letras, uma sombra embaixo e um esfumado largo
+ * em volta (escurece só a imagem perto do texto, então o fundo pode ficar claro).
+ */
+const sombraTexto = (ligada: boolean) =>
+  ligada ? '0 0 0.25em rgba(0,0,0,.6), 0 0.05em 0.12em rgba(0,0,0,.95), 0 0 0.04em rgba(0,0,0,.95), 0 0 0.6em rgba(0,0,0,.55)' : 'none'
 
 function CamadaConteudo(p: PropsConteudo) {
   const c = p.conteudo
   const cfg = p.config
+  const aoMedir = p.ativo ? p.aoMedirTexto : undefined
   switch (c.tipo) {
     case 'vazio':
       return null
@@ -195,6 +232,7 @@ function CamadaConteudo(p: PropsConteudo) {
             <TextoAjustado
               chave={c.texto}
               maxPct={cfg.textoTamanhoMax}
+              aoMedir={aoMedir}
               estilo={{ textAlign: 'center', fontWeight: 600, lineHeight: 1.25, color: '#fff', whiteSpace: 'pre-line', textShadow: sombraTexto(cfg.textoSombra) }}
             >
               {c.texto}
@@ -212,6 +250,7 @@ function CamadaConteudo(p: PropsConteudo) {
             <TextoAjustado
               chave={c.texto}
               maxPct={cfg.textoTamanhoMax}
+              aoMedir={aoMedir}
               estilo={{
                 textAlign: 'center',
                 fontWeight: intro ? 600 : 700,
@@ -225,12 +264,21 @@ function CamadaConteudo(p: PropsConteudo) {
               {c.texto}
             </TextoAjustado>
           </div>
+          {/* próximo trecho: branco, como o atual (menor e embaixo da linha) */}
           {cfg.musicaMostrarProximo && c.proximo && (
-            <div style={{ height: '19cqh', marginTop: '2cqh', borderTop: '0.3cqh solid rgba(255,255,255,.25)', paddingTop: '1.5cqh' }}>
+            <div style={{ height: '19cqh', marginTop: '2cqh', borderTop: '0.3cqh solid #fff', paddingTop: '1.5cqh' }}>
               <TextoAjustado
                 chave={c.proximo}
                 maxPct={6.5}
-                estilo={{ textAlign: 'center', fontWeight: 600, lineHeight: 1.2, color: 'rgba(255,255,255,.6)', whiteSpace: 'pre-line', textTransform: caixa }}
+                estilo={{
+                  textAlign: 'center',
+                  fontWeight: 600,
+                  lineHeight: 1.2,
+                  color: '#fff',
+                  whiteSpace: 'pre-line',
+                  textShadow: sombraTexto(cfg.textoSombra),
+                  textTransform: caixa,
+                }}
               >
                 {c.proximo}
               </TextoAjustado>
@@ -246,6 +294,7 @@ function CamadaConteudo(p: PropsConteudo) {
             <TextoAjustado
               chave={c.texto + (c.segundo?.texto ?? '')}
               maxPct={cfg.textoTamanhoMax}
+              aoMedir={aoMedir}
               estilo={{
                 textAlign: 'center',
                 fontWeight: 600,
@@ -310,29 +359,50 @@ function ConteudoSlide(p: PropsConteudo & { c: ConteudoDeSlide }) {
     </CaixaSlide>
   )
   const notas = cfg.slideMostrarNotas ? c.notas.trim() : ''
-  if (!cfg.slideMostrarProximo && !notas) return atual
+  // último slide: o motor não acha um próximo (os ocultos já contam, se forem pulados)
+  const fim = cfg.slideAvisarFim && !c.proximoUrl
+  if (!cfg.slideMostrarProximo && !notas) {
+    if (!fim) return atual
+    return (
+      <div className="relative h-full w-full">
+        {atual}
+        <SeloUltimoSlide />
+      </div>
+    )
+  }
 
   return (
-    <div className="flex h-full w-full flex-col bg-black" style={{ padding: '2.5cqh', gap: '2.5cqh' }}>
+    <div className="relative flex h-full w-full flex-col bg-black" style={{ padding: '2.5cqh', gap: '2.5cqh' }}>
       <div className="flex min-h-0 flex-1" style={{ gap: '2.5cqh' }}>
-        <div className="min-w-0" style={{ flex: cfg.slideMostrarProximo ? '0 0 64%' : '1 1 auto' }}>
+        <div className="relative min-w-0" style={{ flex: cfg.slideMostrarProximo ? '0 0 64%' : '1 1 auto' }}>
           {atual}
+          {fim && !cfg.slideMostrarProximo && <SeloUltimoSlide />}
         </div>
         {cfg.slideMostrarProximo && (
           <div className="flex min-w-0 flex-1 flex-col" style={{ gap: '1.5cqh' }}>
-            <div style={{ fontSize: '3.4cqh', fontWeight: 700, letterSpacing: '.08em', color: 'rgba(255,255,255,.55)' }}>PRÓXIMO</div>
+            <div style={{ fontSize: '3.4cqh', fontWeight: 700, letterSpacing: '.08em', color: fim ? COR_FIM : 'rgba(255,255,255,.55)' }}>
+              {fim ? 'FIM' : 'PRÓXIMO'}
+            </div>
             <div className="min-h-0" style={{ height: '42%' }}>
               {c.proximoUrl ? (
                 <CaixaSlide url={c.proximoUrl} proporcao={c.proporcao} />
+              ) : fim ? (
+                <div
+                  className="flex h-full flex-col items-center justify-center text-center"
+                  style={{ background: COR_FIM, color: '#fff', borderRadius: '1.2cqh', fontWeight: 800, lineHeight: 1.05, padding: '1.5cqh' }}
+                >
+                  <div style={{ fontSize: '6.5cqh', letterSpacing: '.02em' }}>ÚLTIMO SLIDE</div>
+                  <div style={{ fontSize: '3.4cqh', fontWeight: 600, marginTop: '1cqh', opacity: 0.92 }}>Fim da apresentação</div>
+                </div>
               ) : (
                 <div className="flex h-full items-center justify-center rounded" style={{ border: '0.3cqh dashed rgba(255,255,255,.3)', color: 'rgba(255,255,255,.5)', fontSize: '3.6cqh' }}>
                   Fim da apresentação
                 </div>
               )}
             </div>
-            <div className="mt-auto" style={{ color: '#fff', fontSize: '10cqh', fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+            <div className="mt-auto" style={{ color: fim ? COR_FIM : '#fff', fontSize: '10cqh', fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
               {c.indice + 1}
-              <span style={{ fontSize: '0.5em', color: 'rgba(255,255,255,.55)' }}> / {c.total}</span>
+              <span style={{ fontSize: '0.5em', color: fim ? COR_FIM : 'rgba(255,255,255,.55)' }}> / {c.total}</span>
             </div>
           </div>
         )}
@@ -400,6 +470,33 @@ function SeloVideoSlide({ telemetria }: { telemetria?: TelemetriaVideo | null })
     >
       <Film style={{ width: '5cqh', height: '5cqh' }} />
       {telemetria && falta !== null ? `${telemetria.tocando ? '▶' : '❚❚'} −${formatarTempo(falta)}` : 'vídeo'}
+    </div>
+  )
+}
+
+/** vermelho do aviso de último slide (o mesmo do temporizador esgotado) */
+const COR_FIM = '#ef4444'
+
+/** Aviso de último slide por cima do slide, no alto e no meio (quando a saída não mostra o próximo). */
+function SeloUltimoSlide() {
+  return (
+    <div
+      className="absolute text-white"
+      style={{
+        top: '2.5cqh',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        padding: '0.8cqh 2.4cqh',
+        borderRadius: '1cqh',
+        background: COR_FIM,
+        boxShadow: '0 0.4cqh 1.6cqh rgba(0,0,0,.55)',
+        fontSize: '5cqh',
+        fontWeight: 800,
+        letterSpacing: '.03em',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      ÚLTIMO SLIDE
     </div>
   )
 }

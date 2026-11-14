@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   BookOpen,
   ChevronRight,
+  Lightbulb,
   Download,
   type LucideIcon,
   MonitorPause,
@@ -14,14 +15,17 @@ import {
   SlidersHorizontal,
   Smartphone,
   Wallpaper,
+  Wrench,
 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   type Config,
   EsquemaApresentacoes,
   EsquemaBiblia,
+  EsquemaFerramentas,
   EsquemaFundos,
   EsquemaGeral,
+  EsquemaIluminacao,
   EsquemaMusicas,
   EsquemaTelaEspera,
 } from '../../shared/config'
@@ -34,7 +38,7 @@ import { FormularioEsquema } from './FormularioEsquema'
 import { SecaoRemoto } from './Remoto'
 import { BarraProgresso, Botao, Secao } from './ui'
 
-type IdPasta = 'geral' | 'musicas' | 'biblia' | 'apresentacoes' | 'fundos' | 'espera' | 'remoto'
+type IdPasta = 'geral' | 'musicas' | 'biblia' | 'apresentacoes' | 'fundos' | 'espera' | 'ferramentas' | 'iluminacao' | 'remoto'
 
 const nomeArquivo = (caminho: string) => caminho.split(/[\\/]/).pop() ?? caminho
 
@@ -81,6 +85,21 @@ const PASTAS: Array<{ id: IdPasta; titulo: string; descricao: string; icone: Luc
     descricao: 'O que aparece nos projetores ao apertar Logo.',
     icone: MonitorPause,
     resumo: (c) => (c.telaEspera.imagem ? `Imagem: ${nomeArquivo(c.telaEspera.imagem)}` : `“${c.telaEspera.texto}”`),
+  },
+  {
+    id: 'ferramentas',
+    titulo: 'Ferramentas',
+    descricao: 'Relógio, cores e fim do temporizador, QR code e sorteio.',
+    icone: Wrench,
+    resumo: (c) =>
+      `Amarelo aos ${c.ferramentas.temporizadorAmareloMin} min · no fim: ${c.ferramentas.temporizadorAoTerminar === 'negativo' ? 'conta o tempo passado' : 'para no 0:00'}`,
+  },
+  {
+    id: 'iluminacao',
+    titulo: 'Iluminação',
+    descricao: 'Botão das luzes e cenários nos itens da liturgia.',
+    icone: Lightbulb,
+    resumo: (c) => (c.iluminacao.ativo ? `Ligado · ${c.iluminacao.endereco}` : 'Desligado'),
   },
   {
     id: 'remoto',
@@ -209,6 +228,18 @@ function ConteudoPasta({ pasta, config, salvar }: { pasta: IdPasta; config: Conf
             <TelaEspera espera={config.telaEspera} />
           </div>
           <FormularioEsquema esquema={EsquemaTelaEspera} valor={config.telaEspera} aoMudar={(telaEspera) => salvar({ ...config, telaEspera })} />
+        </Secao>
+      )
+    case 'ferramentas':
+      return (
+        <Secao titulo="Ferramentas" descricao="Onde cada ferramenta aparece (e a posição e o tamanho no canto) fica na própria página Ferramentas.">
+          <FormularioEsquema esquema={EsquemaFerramentas} valor={config.ferramentas} aoMudar={(ferramentas) => salvar({ ...config, ferramentas })} />
+        </Secao>
+      )
+    case 'iluminacao':
+      return (
+        <Secao titulo="Iluminação" descricao="O sistema das luzes da igreja (luz.local). Os cenários são criados na página dele.">
+          <FormularioEsquema esquema={EsquemaIluminacao} valor={config.iluminacao} aoMudar={(iluminacao) => salvar({ ...config, iluminacao })} />
         </Secao>
       )
     case 'remoto':

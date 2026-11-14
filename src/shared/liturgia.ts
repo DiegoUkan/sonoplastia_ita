@@ -9,7 +9,7 @@
 import { z } from 'zod'
 import { formatarReferencia, interpretarReferencia } from './biblia/referencia'
 
-export const TIPOS_ITEM = ['musica', 'midia', 'apresentacao', 'biblia', 'texto', 'tela'] as const
+export const TIPOS_ITEM = ['musica', 'midia', 'apresentacao', 'biblia', 'texto', 'tela', 'temporizador', 'qr', 'sorteio'] as const
 export type TipoItemLiturgia = (typeof TIPOS_ITEM)[number]
 
 const base = {
@@ -23,16 +23,49 @@ const base = {
   observacao: z.string().max(2000).default(''),
   /** quando o vídeo, o áudio ou a música termina, passa sozinho para o próximo item */
   avancar: z.boolean().default(false),
+  /** cenário das luzes (luz.local) quando o item entra no ar; '' = não mexe */
+  luzInicio: z.string().max(100).default(''),
+  /** cenário das luzes quando a liturgia sai deste item; '' = não mexe */
+  luzFim: z.string().max(100).default(''),
+}
+
+/** Itens de ferramenta (temporizador, QR, sorteio): no canto ou em tela cheia; saem no próximo item, se não pedir para manter. */
+const baseFerramenta = {
+  modo: z.enum(['canto', 'tela']).default('tela'),
+  /** continua na tela depois deste item (até desligar na página Ferramentas) */
+  manter: z.boolean().default(false),
 }
 
 export const EsquemaItemLiturgia = z.discriminatedUnion('tipo', [
-  z.object({ ...base, tipo: z.literal('musica'), musicaId: z.number().int(), versao: z.enum(['cantado', 'playback', 'manual']).default('cantado') }),
+  /** versao 'perguntar' = o operador escolhe (cantado, playback ou só a letra) na hora de pôr no ar */
+  z.object({ ...base, tipo: z.literal('musica'), musicaId: z.number().int(), versao: z.enum(['cantado', 'playback', 'manual', 'perguntar']).default('cantado') }),
   z.object({ ...base, tipo: z.literal('midia'), midiaId: z.number().int(), midiaTipo: z.enum(['video', 'imagem', 'audio']) }),
   z.object({ ...base, tipo: z.literal('apresentacao'), apresentacaoId: z.number().int() }),
   /** referência como o operador digitou ("jo 3 16-18"); `sigla` vazia = versão padrão */
   z.object({ ...base, tipo: z.literal('biblia'), referencia: z.string().min(1).max(100), sigla: z.string().max(12).default('') }),
   z.object({ ...base, tipo: z.literal('texto'), texto: z.string().max(4000) }),
   z.object({ ...base, tipo: z.literal('tela'), tela: z.enum(['preto', 'logo']) }),
+  z.object({
+    ...base,
+    ...baseFerramenta,
+    tipo: z.literal('temporizador'),
+    temporizadorModo: z.enum(['regressivo', 'horario', 'progressivo']).default('regressivo'),
+    minutos: z.number().min(0).max(1440).default(5),
+    /** 'HH:MM', no modo 'horario' */
+    ate: z.string().max(5).default(''),
+    /** começa a contar quando o item entra no ar (regressivo e cronômetro) */
+    iniciar: z.boolean().default(true),
+  }),
+  z.object({ ...base, ...baseFerramenta, tipo: z.literal('qr'), link: z.string().max(2000), legenda: z.string().max(300).default('') }),
+  /** sorteio: o passador (próximo) sorteia; uma pessoa por linha */
+  z.object({
+    ...base,
+    ...baseFerramenta,
+    tipo: z.literal('sorteio'),
+    lista: z.string().max(200_000).default(''),
+    quantidade: z.number().int().min(1).max(100).default(1),
+    semRepetir: z.boolean().default(true),
+  }),
 ])
 export type ItemLiturgia = z.infer<typeof EsquemaItemLiturgia>
 
@@ -209,12 +242,26 @@ export function tituloDoItem(i: ItemLiturgia): string {
       return i.midiaTipo === 'video' ? 'Vídeo' : i.midiaTipo === 'imagem' ? 'Imagem' : 'Áudio'
     case 'apresentacao':
       return 'Apresentação'
+    case 'temporizador':
+      if (i.temporizadorModo === 'horario') return i.ate ? `Contagem até as ${i.ate}` : 'Contagem até um horário'
+      if (i.temporizadorModo === 'progressivo') return 'Cronômetro'
+      return `Temporizador de ${String(i.minutos).replace('.', ',')} min`
+    case 'qr':
+      return i.legenda.trim() || i.link.replace(/^https?:\/\//, '') || 'QR code'
+    case 'sorteio':
+      return 'Sorteio'
   }
+}
+
+/** Itens que são ferramentas (aparecem por cima do conteúdo, no canto ou em tela cheia). */
+export function ehFerramenta(i: ItemLiturgia): i is Extract<ItemLiturgia, { tipo: 'temporizador' | 'qr' | 'sorteio' }> {
+  return i.tipo === 'temporizador' || i.tipo === 'qr' || i.tipo === 'sorteio'
 }
 
 /** Só estes tipos terminam sozinhos (e podem passar para o próximo item no fim). */
 export function podeAvancarSozinho(i: ItemLiturgia): boolean {
   if (i.tipo === 'musica') return i.versao !== 'manual'
+  if (i.tipo === 'temporizador') return i.temporizadorModo !== 'progressivo'
   return i.tipo === 'midia' && i.midiaTipo !== 'imagem'
 }
 

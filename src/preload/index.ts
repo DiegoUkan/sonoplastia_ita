@@ -87,6 +87,11 @@ const api: ApiSonoplastia = {
   importarFundoSecao: chamar(CANAIS.importarFundoSecao),
   aoMudarLiturgias: (cb) => ouvir(CANAIS.liturgiasMudaram, cb),
 
+  estadoLuz: chamar(CANAIS.estadoLuz),
+  alternarLuz: chamar(CANAIS.alternarLuz),
+  cenarioLuz: chamar(CANAIS.cenarioLuz),
+  abrirPaginaLuz: chamar(CANAIS.abrirPaginaLuz),
+
   statusRemoto: chamar(CANAIS.statusRemoto),
   aoMudarRemoto: (cb) => ouvir(CANAIS.remotoMudou, cb),
   aoPassador: (cb) => ouvir(CANAIS.passador, cb),

@@ -1,5 +1,18 @@
+import { randomInt } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { comecaSozinha, type MidiaSlide, type ModoMidiasSlides, primeiroSlide, slideVizinho } from '../shared/apresentacao'
+import {
+  alvoDoHorario,
+  candidatosDoSorteio,
+  decorridoMs,
+  FERRAMENTAS,
+  horaDe,
+  MAX_NOMES_SORTEIO,
+  nomesDoSorteio,
+  sortearNomes,
+  sorteioNovo,
+  temporizadorNovo,
+} from '../shared/ferramentas'
 import {
   type Alvo,
   AUDIO,
@@ -7,6 +20,7 @@ import {
   type Conteudo,
   type ControleMidia,
   type EstadoApresentacao,
+  type EstadoFerramentas,
   type EstadoMotor,
   type EstadoLiturgia,
   type EstadoMusica,
@@ -32,6 +46,20 @@ const controleNovo = (): ControleMidia => ({
 function saidaNova(id: string): EstadoSaida {
   return { id, conteudo: { tipo: 'vazio' }, chave: 0, fundo: { tipo: 'nenhum' }, tela: 'normal', video: controleNovo() }
 }
+
+function ferramentasNovas(): EstadoFerramentas {
+  return {
+    exibicao: Object.fromEntries(FERRAMENTAS.map((f) => [f, {}])) as EstadoFerramentas['exibicao'],
+    temporizador: temporizadorNovo(),
+    qr: { link: '', texto: '' },
+    mensagem: '',
+    sorteio: sorteioNovo(),
+    fundo: { tipo: 'nenhum' },
+  }
+}
+
+const UM_DIA_MS = 24 * 3600_000
+const limitar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
 
 export interface DadosAbrirMusica {
   musicaId: number
@@ -79,8 +107,20 @@ export function conteudoDaLetra(m: EstadoMusica): Conteudo {
  * Recebe comandos e emite 'estado' com o estado completo; as janelas só desenham o que recebem.
  */
 export class Motor extends EventEmitter {
-  private _estado: EstadoMotor = { versao: 0, saidas: {}, audio: { fonte: null, controle: controleNovo() }, musica: null, apresentacao: null, liturgia: null }
+  private _estado: EstadoMotor = {
+    versao: 0,
+    saidas: {},
+    audio: { fonte: null, controle: controleNovo() },
+    musica: null,
+    apresentacao: null,
+    liturgia: null,
+    ferramentas: ferramentasNovas(),
+  }
   private proximaChave = 1
+  /** relógio do motor (trocado nos testes) */
+  agora: () => number = () => Date.now()
+  /** inteiro de 0 a n-1, ao acaso (trocado nos testes) */
+  aleatorio: (n: number) => number = (n) => randomInt(n)
   /** antecipação usada quando o operador escolhe um trecho e o áudio pula para ele */
   clicarPulaAudio = true
   /** o passador pula os slides ocultos (configuração) */
@@ -90,6 +130,7 @@ export class Motor extends EventEmitter {
   /** o que acontece quando o áudio da música termina (configuração) */
   aoTerminarMusica: AoTerminarMusica = 'fechar'
   private _fundoPadrao: Fundo = SEM_FUNDO
+  private _volume = 1
 
   constructor(ids: string[]) {
     super()
@@ -107,13 +148,37 @@ export class Motor extends EventEmitter {
     if (!mudou) return
     this.alterar((e) => {
       const saidas: Record<string, EstadoSaida> = {}
-      for (const id of ids) saidas[id] = atuais[id] ?? saidaNova(id)
+      for (const id of ids) {
+        // `e` é a cópia do estado: mexe nela, não no estado anterior
+        saidas[id] = e.saidas[id] ?? saidaNova(id)
+        saidas[id]!.video.volume = this._volume
+      }
       e.saidas = saidas
+      // saída removida deixa de mostrar as ferramentas
+      for (const ex of Object.values(e.ferramentas.exibicao)) for (const id of Object.keys(ex)) if (!saidas[id]) delete ex[id]
     })
   }
 
   get fundoPadrao(): Fundo {
     return this._fundoPadrao
+  }
+
+  /** Volume de tudo o que toca (0 a 1), o mesmo em vídeos, áudios e músicas. */
+  get volume(): number {
+    return this._volume
+  }
+
+  /** Volume gravado nas configurações (ao abrir o programa). Emite 'volume' só quando o operador muda. */
+  definirVolume(v: number): void {
+    const novo = limitar(Number.isFinite(v) ? v : 1, 0, 1)
+    if (novo === this._volume) return
+    this._volume = novo
+    this.alterar((e) => this.aplicarVolume(e))
+  }
+
+  private aplicarVolume(e: EstadoMotor): void {
+    e.audio.controle.volume = this._volume
+    for (const s of Object.values(e.saidas)) s.video.volume = this._volume
   }
 
   /**
@@ -123,9 +188,13 @@ export class Motor extends EventEmitter {
   definirFundoPadrao(f: Fundo): void {
     if (mesmoFundo(f, this._fundoPadrao)) return
     this._fundoPadrao = f
-    this.alterar((e) => {
-      for (const s of Object.values(e.saidas)) s.fundo = this.fundoDe(s.conteudo, e)
-    })
+    this.alterar((e) => this.recalcularFundos(e))
+  }
+
+  /** Fundo de cada saída (pelo conteúdo dela) e o das ferramentas em tela cheia. */
+  private recalcularFundos(e: EstadoMotor): void {
+    for (const s of Object.values(e.saidas)) s.fundo = this.fundoDe(s.conteudo, e)
+    e.ferramentas.fundo = this.fundoDe({ tipo: 'texto', texto: '' }, e)
   }
 
   /**
@@ -135,7 +204,7 @@ export class Motor extends EventEmitter {
   definirLiturgia(l: EstadoLiturgia | null): void {
     this.alterar((e) => {
       e.liturgia = l
-      for (const s of Object.values(e.saidas)) s.fundo = this.fundoDe(s.conteudo, e)
+      this.recalcularFundos(e)
     })
   }
 
@@ -217,12 +286,17 @@ export class Motor extends EventEmitter {
     return SEM_FUNDO
   }
 
-  private mostrarEm(e: EstadoMotor, s: EstadoSaida, conteudo: Conteudo): void {
+  /**
+   * Põe o conteúdo na saída. `liberar`: o operador abriu algo (falso só quando a música troca de trecho
+   * sozinha, pelo áudio): as ferramentas em tela cheia saem da frente (ver `liberarSaida`).
+   */
+  private mostrarEm(e: EstadoMotor, s: EstadoSaida, conteudo: Conteudo, liberar = true): void {
     s.conteudo = conteudo
     s.fundo = this.fundoDe(conteudo, e)
     s.chave = this.proximaChave++
     // conteúdo novo sai de "limpar" e "logo"; o preto só sai com comando explícito
     if (s.tela === 'limpar' || s.tela === 'logo') s.tela = 'normal'
+    if (liberar && conteudo.tipo !== 'vazio') liberarSaida(e, s.id)
   }
 
   private aplicar(e: EstadoMotor, c: Comando): void {
@@ -284,10 +358,14 @@ export class Motor extends EventEmitter {
         for (const ctl of this.controles(e, c.alvo, true)) ctl.repetir = c.valor
         return
       case 'volume':
-        for (const ctl of this.controles(e, c.alvo, false)) {
-          if (typeof c.volume === 'number') ctl.volume = Math.min(1, Math.max(0, c.volume))
-          if (typeof c.mudo === 'boolean') ctl.mudo = c.mudo
+        // o volume é um só para tudo (vídeos, áudios e músicas): trocar de vídeo para áudio não volta ao máximo
+        if (typeof c.volume === 'number' && Number.isFinite(c.volume)) {
+          this._volume = limitar(c.volume, 0, 1)
+          this.aplicarVolume(e)
+          this.emit('volume', this._volume)
         }
+        // o "mudo" continua de cada um (no vídeo em várias saídas, só a primeira solta o som)
+        if (typeof c.mudo === 'boolean') for (const ctl of this.controles(e, c.alvo, false)) ctl.mudo = c.mudo
         return
       case 'audio':
         if (e.audio.fonte?.tipo === 'musica') this.fecharMusica(e)
@@ -313,10 +391,11 @@ export class Motor extends EventEmitter {
         }
         if (indice === m.indice) return
         m.indice = indice
-        // só atualiza as saídas que ainda mostram a letra (se o operador pôs outra coisa, respeita)
+        // só atualiza as saídas que ainda mostram a letra (se o operador pôs outra coisa, respeita).
+        // O trecho que troca sozinho pelo áudio não tira da frente o QR, o sorteio… que o operador pôs.
         for (const id of this.ids(e, m.alvo)) {
           const s = e.saidas[id]!
-          if (s.conteudo.tipo === 'letra') this.mostrarEm(e, s, conteudoDaLetra(m))
+          if (s.conteudo.tipo === 'letra') this.mostrarEm(e, s, conteudoDaLetra(m), c.origem !== 'audio')
         }
         return
       }
@@ -353,9 +432,123 @@ export class Motor extends EventEmitter {
         return
       case 'liturgia:fechar':
         e.liturgia = null
-        for (const s of Object.values(e.saidas)) s.fundo = this.fundoDe(s.conteudo, e)
+        this.recalcularFundos(e)
+        return
+      case 'ferramenta:mostrar': {
+        const ex = e.ferramentas.exibicao[c.ferramenta]
+        if (!ex) return
+        for (const id of this.ids(e, c.alvo)) {
+          if (c.modo === 'canto' || c.modo === 'tela') ex[id] = c.modo
+          else delete ex[id]
+        }
+        return
+      }
+      case 'temporizador:definir':
+      case 'temporizador:acao':
+      case 'temporizador:ajustar':
+      case 'temporizador:titulo':
+        this.temporizador(e, c)
+        return
+      case 'qr:definir':
+        e.ferramentas.qr = { link: String(c.link ?? '').trim().slice(0, 2000), texto: String(c.texto ?? '').slice(0, 300) }
+        return
+      case 'mensagem:definir':
+        e.ferramentas.mensagem = String(c.texto ?? '').slice(0, 500)
+        return
+      case 'sorteio:preparar': {
+        const s = e.ferramentas.sorteio
+        s.titulo = String(c.titulo ?? '').slice(0, 120) || 'Sorteio'
+        s.resultado = []
+        s.amostra = []
+        s.duracaoMs = 0
+        s.inicioEm = this.agora()
+        s.seq += 1
+        return
+      }
+      case 'sorteio:sortear':
+        this.sortear(e, c)
+        return
+      case 'sorteio:zerar': {
+        const s = e.ferramentas.sorteio
+        s.sorteados = []
+        s.resultado = []
+        s.amostra = []
+        s.duracaoMs = 0
+        s.seq += 1
+        return
+      }
+    }
+  }
+
+  private temporizador(e: EstadoMotor, c: Extract<Comando, { tipo: `temporizador:${string}` }>): void {
+    const agora = this.agora()
+    const t = e.ferramentas.temporizador
+    switch (c.tipo) {
+      case 'temporizador:definir': {
+        const n = temporizadorNovo()
+        n.modo = c.modo === 'horario' || c.modo === 'progressivo' ? c.modo : 'regressivo'
+        n.titulo = c.titulo !== undefined ? String(c.titulo).slice(0, 80) : t.titulo
+        const minutos = typeof c.minutos === 'number' && Number.isFinite(c.minutos) ? c.minutos : t.duracaoMs / 60_000
+        n.duracaoMs = limitar(Math.round(minutos * 60_000), 0, UM_DIA_MS)
+        n.ate = c.ate !== undefined ? String(c.ate).trim().slice(0, 5) : t.ate
+        if (n.modo === 'horario') {
+          n.alvoEm = alvoDoHorario(n.ate, agora)
+          // até um horário: conta sozinho (não tem pausa)
+          n.rodando = n.alvoEm !== null
+          n.desde = n.rodando ? agora : null
+        }
+        e.ferramentas.temporizador = n
+        return
+      }
+      case 'temporizador:acao':
+        if (t.modo === 'horario') return
+        if (c.acao === 'iniciar' && !t.rodando) {
+          t.rodando = true
+          t.desde = agora
+        } else if (c.acao === 'pausar' && t.rodando) {
+          t.acumuladoMs = decorridoMs(t, agora)
+          t.rodando = false
+          t.desde = null
+        } else if (c.acao === 'zerar') {
+          t.acumuladoMs = 0
+          t.rodando = false
+          t.desde = null
+        }
+        return
+      case 'temporizador:ajustar': {
+        const delta = Math.round((Number(c.minutos) || 0) * 60_000)
+        if (t.modo === 'regressivo') t.duracaoMs = limitar(t.duracaoMs + delta, 0, UM_DIA_MS)
+        else if (t.modo === 'progressivo') {
+          t.acumuladoMs = limitar(decorridoMs(t, agora) + delta, 0, UM_DIA_MS)
+          t.desde = t.rodando ? agora : null
+        } else if (t.alvoEm !== null) {
+          t.alvoEm += delta
+          t.ate = horaDe(t.alvoEm)
+        }
+        return
+      }
+      case 'temporizador:titulo':
+        t.titulo = String(c.titulo ?? '').slice(0, 80)
         return
     }
+  }
+
+  private sortear(e: EstadoMotor, c: Extract<Comando, { tipo: 'sorteio:sortear' }>): void {
+    const s = e.ferramentas.sorteio
+    const lista = nomesDoSorteio((Array.isArray(c.lista) ? c.lista : []).slice(0, MAX_NOMES_SORTEIO).join('\n'))
+    const candidatos = candidatosDoSorteio(lista, s.sorteados, !!c.semRepetir)
+    if (!candidatos.length) return
+    const quantidade = limitar(Math.floor(Number(c.quantidade) || 1), 1, Math.min(100, candidatos.length))
+    const resultado = sortearNomes(candidatos, quantidade, this.aleatorio)
+    if (c.titulo !== undefined) s.titulo = String(c.titulo).slice(0, 120) || 'Sorteio'
+    s.resultado = resultado
+    // nomes que passam na tela durante a animação (no máximo 120, para o estado não ficar grande)
+    s.amostra = sortearNomes(candidatos, Math.min(120, candidatos.length), this.aleatorio)
+    s.inicioEm = this.agora()
+    s.duracaoMs = limitar(Math.round(Number(c.duracaoMs) || 0), 0, 20_000)
+    s.seq += 1
+    const ja = new Set(s.sorteados)
+    s.sorteados = [...s.sorteados, ...resultado.filter((n) => !ja.has(n))]
   }
 
   private conteudoDoSlide(a: EstadoApresentacao): Conteudo {
@@ -526,6 +719,22 @@ function acaoNoControle(ctl: ControleMidia, acao: 'tocar' | 'pausar' | 'reinicia
 
 function proximaBusca(ctl: ControleMidia, segundos: number, relativo = false): ControleMidia['busca'] {
   return { seq: ctl.busca.seq + 1, segundos, relativo }
+}
+
+/**
+ * Uma ferramenta em tela cheia nunca segura a saída quando o operador abre outra coisa nela: o
+ * temporizador vai para o canto (continua contando, sem cobrir a mídia); QR code, mensagem e sorteio
+ * saem. O que já está no canto fica. (O relógio em tela cheia é da configuração: a saída o desenha no
+ * canto enquanto houver conteúdo no ar.)
+ */
+function liberarSaida(e: EstadoMotor, saidaId: string): void {
+  const ex = e.ferramentas.exibicao
+  for (const f of FERRAMENTAS) {
+    // o sorteio é sempre em tela cheia (qualquer modo dele cobre a saída)
+    if (ex[f][saidaId] !== 'tela' && !(f === 'sorteio' && ex[f][saidaId])) continue
+    if (f === 'temporizador') ex[f][saidaId] = 'canto'
+    else delete ex[f][saidaId]
+  }
 }
 
 function pararAudio(e: EstadoMotor): void {

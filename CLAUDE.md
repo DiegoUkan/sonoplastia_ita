@@ -167,6 +167,61 @@ saída).
     problema (mídia apagada) avisa e fica marcado, para o próximo clique passar dele.
   - Banco: migração 3, tabela `liturgias` (seções e itens num JSON validado por zod em
     `src/shared/liturgia.ts`).
+- **2026-11-14 ~15h45: commit `59391f8` (Fases 4, 5 e controle remoto) enviado ao GitHub** (o usuário
+  pediu o push antes do teste nos projetores).
+- **2026-11-14 (fim da tarde): Fase 6 (ferramentas) + pedidos do usuário.** Testado com Vitest (145,
+  20 novos em `tests/ferramentas.test.ts`), typecheck e autoteste às 16h15–16h23 (build em `out-teste`,
+  passos leves; o programa de verdade e o Holyrics continuaram abertos; o usuário autorizou). **Ainda não
+  visto nos projetores nem usado pelo operador. Nada disto foi commitado.** Feito:
+  - **Ferramentas** (`src/shared/ferramentas.ts`, `src/renderer/compartilhado/Ferramentas.tsx`, página
+    **Ferramentas** `PaginaFerramentas.tsx`): relógio, temporizador (regressivo, até um horário,
+    cronômetro; amarelo/vermelho, piscar e mensagem no fim, ±1 min, atalhos "Sermão 40", "Escola
+    Sabatina 45"), QR code (`qrcode-generator` 1.4.4, única dependência nova; links guardados), mensagem
+    rápida (faixa amarela embaixo; atalhos "Faltam 5 minutos"…) e sorteio (nomes ou números, quantos,
+    sem repetir, animação). Cada uma, por saída: Não / Canto (posição em 9 pontos + tamanho) / Tela cheia.
+    **Relógio pedido pelo usuário: no Palco por padrão** (`relogio: 'canto'` em `PADROES_PALCO`, também
+    nas configurações antigas), no Público só se ligar.
+  - Itens novos na liturgia: **temporizador** (ex.: contagem até 9:00; "passar sozinho" no 0:00), **QR
+    code** e **sorteio** (o passador sorteia). Saem da tela quando a liturgia passa para outro item, a
+    não ser que o item peça para continuar.
+  - **Música "escolher na hora"** (pedido): na liturgia, música pode ser Cantado / Playback / Só a letra /
+    Escolher na hora. Ao entrar no ar, a tela de comando pergunta (C, P ou L) e nada muda nos projetores
+    até a escolha (`EstadoLiturgia.escolherVersao`, `FocoMusica.tsx`). No painel Adicionar, clicar na
+    música mostra as 4 opções com explicação.
+  - **Painel grande da música só com a letra** (pedido): com música manual no ar, a tela de comando
+    escurece e fica a letra grande, o próximo trecho, a lista de trechos e Anterior/Próximo; →, PageDown e
+    Espaço passam em qualquer página; dá para minimizar (fica um botão). Configurações → Músicas → "Só a
+    letra: abrir o painel grande dos trechos".
+  - **Volume único e gravado** (pedido: "trocar de vídeo para áudio voltava ao máximo"): o volume vale
+    para vídeos, áudios e músicas, e fica em `geral.volume` (grava 0,8 s depois de soltar). O mudo
+    continua de cada um.
+  - **Iluminação (luz.local)** (pedido): API descoberta lendo a página do sistema (só leitura):
+    `/status`, `/get-names`, `/list-scenarios`, `/toggle?id&user`, `/load-scenario?name&user` (não há
+    "ligar/desligar", só alternar). 8 relés (5 com nome) e 4 cenários ("1. Ligar tudo", "2. Desligar
+    tudo", "3. Laterais", "4. Projetor"). Botão **Luzes** na barra de baixo abre o painel (relés e
+    cenários); cada item da liturgia pode ter cenário ao começar e ao sair (`luzInicio`/`luzFim`).
+    O processo principal fala com as luzes (`src/main/iluminacao.ts`; a página delas não libera CORS) e
+    guarda o IP (achar "luz.local" leva ~3 s no Windows). **No autoteste nada é mandado para as luzes.
+    Nenhum comando foi testado nas luzes de verdade** (só leitura).
+  - **Bíblia em tabela** (pedido, com imagem de modelo): livros em grade 11×6 com cores por grupo
+    (tokens `--color-biblia-*`), capítulos e versículos em botões; passar o mouse mostra o texto.
+    Botões Tabela / Texto; digitar volta para o Texto.
+  - **Miniaturas nos itens da liturgia** (pedido): imagem do vídeo/imagem, 1º slide, imagem da música,
+    o próprio QR; os outros, o ícone do tipo.
+- **2026-11-14 ~16h30: pedidos para o Palco e o Público** (`Camadas.tsx`, `config.ts`). Testado com Vitest
+  (146), typecheck e autoteste leve às 16h29 (`out\` recompilado: o programa estava fechado). **Ainda não
+  visto nos projetores. Nada commitado.**
+  - Palco: o **próximo trecho da música** e a **linha que divide** agora são brancos (antes cinza).
+  - Público: a imagem atrás de letra/versículo/texto escurece **10%** (antes 35% fixo), opção nova por
+    saída `fundoEscurecer` (0–80%, deslizante em Telas); a **sombra do texto** ficou mais forte (contorno +
+    esfumado largo, em `em`, cresce com a letra). `TextoAjustado` corta com `overflow: clip` e 4cqh de
+    folga, para a sombra não ficar com borda reta.
+  - **Último slide só no Palco**: opção `slideAvisarFim` (Palco ligado por padrão, também nas configurações
+    antigas; Público desligado). Com o próximo slide ao lado: no lugar dele uma caixa vermelha "ÚLTIMO
+    SLIDE", rótulo "FIM" e o número em vermelho. Sem o próximo: selo vermelho no alto do slide. "Último" =
+    o motor não acha próximo (`proximoUrl` nulo; slides ocultos contam).
+  - Autoteste: captura `9b-ultimo-slide` (último slide do PDF) e `SONOPLASTIA_AUTOTESTE_PULAR=pptx` (só o
+    PDF, sem abrir o PowerPoint).
 
 ## Decisões
 
@@ -214,8 +269,10 @@ saída).
   mudança de valor (ex.: tocar de novo um vídeo que terminou).
 - Mostrar outra coisa numa saída que estava com a letra da música: a música continua (áudio e as
   outras saídas), mas para de atualizar aquela saída.
-- Palco por padrão: sem vídeo (só nome e tempo), música sem fundo e com o próximo trecho. Configs
-  antigas ganham esses padrões no Palco (`completarPadroesDoPalco`).
+- Palco por padrão: sem vídeo (só nome e tempo), música sem fundo e com o próximo trecho (branco, como o
+  atual), aviso de último slide. Configs antigas ganham esses padrões no Palco (`completarPadroesDoPalco`).
+- Fundo atrás de texto: pouco escurecido (`fundoEscurecer`, 10%) + sombra forte no texto (pedido do
+  usuário: "imagem mais clara, sombra atrás do texto").
 - Controles deslizantes e listas largam o foco depois de usados (o passador de slides manda setas).
 - **Controle remoto** (`src/main/remoto/`, `src/renderer/remoto/`): HTTP + Server-Sent Events, sem
   biblioteca nova. Só os métodos de `METODOS_REMOTO` (`src/shared/remoto.ts`); comandos conferidos por
@@ -254,6 +311,36 @@ saída).
   (vídeo, imagem, texto): a tecla segue para a apresentação no ar, se houver.
 - "Item ligado/desligado": o desligado fica na lista (para outra vez), mas o "Próximo item" pula ele e
   ele não conta no horário previsto.
+- **Ferramentas: relógio na configuração, o resto no motor.** O relógio é opção fixa de cada saída
+  (`relogio`, posição e tamanho em `EsquemaSaida`); temporizador, QR, mensagem e sorteio ligam/desligam na
+  hora (`estado.ferramentas.exibicao`). Posição e tamanho no canto ficam na configuração da saída.
+- Tempos guardados como instantes (`desde`, `alvoEm`, `inicioEm`): cada janela calcula o que mostrar
+  com o relógio do PC; o motor não emite estado a cada segundo. Sorteio: o motor escolhe (`randomInt`),
+  para todas as saídas mostrarem o mesmo nome.
+- Camadas: ferramenta em tela cheia fica por cima do conteúdo e **embaixo** do Logo; no canto fica **por
+  cima** do Logo (relógio e contagem continuam na tela de espera); o Preto cobre tudo. Limpar não tira
+  ferramentas. Só uma ferramenta em tela cheia por saída (ordem: sorteio, mensagem, QR, temporizador,
+  relógio).
+- Ferramentas do motor não estão na lista do controle remoto (`TIPOS_DE_COMANDO`); entram quando o
+  celular ganhar o temporizador.
+- Volume único (`Motor.volume`, `definirVolume`, evento `volume`); o comando `volume` com número vale
+  para tudo, o `mudo` continua por alvo.
+- Luzes na liturgia: ao trocar de item, aplica o cenário de começo do novo; se ele não tem, o de fim do
+  anterior (os dois seguidos fariam a luz piscar). "encerrar" aplica o fim do item no ar. Música
+  "escolher na hora" só mexe nas luzes depois da escolha.
+- **O cenário de fim roda uma vez, no que vier primeiro** (pedido do usuário, 2026-11-14): a mídia
+  terminou sozinha (vídeo pela telemetria, áudio/música pelo `audio:terminou`) **ou** o operador saiu
+  dela (Parar no player, outra coisa no lugar do vídeo, música fechada, apresentação fechada, próximo
+  item, abertura, encerrar). O executor ouve o `estado` do motor e confere se a mídia do item ainda
+  está no ar (`ItemNoAr.presenca`; só conta depois de ter sido vista no ar). Limpar e Preto não contam
+  como saída.
+- Teclas que precisam passar na frente da página (pergunta da versão, painel da letra) usam
+  `addEventListener('keydown', …, true)` + `stopImmediatePropagation` (`useTeclasNaFrente`).
+- **Site da sonoplastia agora pede login** (a partir de 2026-11-14 à tarde, `status.json` dá 401; a
+  sincronização antiga do Holyrics deixa de funcionar). O usuário mandou a senha no chat: o Claude **não
+  entra com ela** (regra de segurança) nem a grava no código/GitHub. Caminho combinado: o usuário entra no
+  site no navegador do painel do Claude e o Claude só lê as páginas para aprender a estrutura; no
+  programa, a senha será digitada pelo usuário em Configurações (guardar com `safeStorage`).
 
 ## PC da igreja (onde o programa vai rodar)
 
@@ -289,7 +376,9 @@ para 30 s, miniaturas ao vivo andando); Bíblia (importa a ARA do projeto de tra
 aos 8 s); biblioteca (importa e analisa um vídeo); apresentação (importa um .pptx com vídeo/áudio e um
 PDF reais deste PC, mostra, dá o clique do vídeo); controle remoto (PIN, métodos proibidos, passador,
 e a página do celular numa janela oculta, com PNGs `r*-celular.png`); liturgia (culto de hoje do
-modelo, seção com fundo, texto → versículo com o passador, PNGs `L*`); coluna recolhida; emergência.
+modelo, seção com fundo, texto → versículo com o passador, PNGs `L*`); ferramentas (canto e tela
+cheia, sorteio, painel da letra, pergunta da versão, painel das luzes só lendo, PNGs `F*`); coluna
+recolhida; emergência. O passo da Bíblia também captura a tabela (`3b-biblia-tabela`).
 `SONOPLASTIA_AUTOTESTE_PULAR=apresentacao,video` pula passos. **Abre o PowerPoint
 (oculto) e pesa no computador: não rodar durante o culto.** Janela oculta só
 pinta quando é capturada, por isso o autoteste captura duas vezes, e as transições CSS aparecem
@@ -346,9 +435,7 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
 5. **Conferir a Fase 4 no PC de verdade** (fora do culto): Apresentações → importar um sermão .pptx
    e um .pdf; passar com o passador de slides no Público e ver o Palco (atual + próximo); um slide
    com vídeo (1º clique toca, 2º passa). Ligar "anotações" no Palco em Telas, se o pregador quiser.
-6. Commit e envio ao GitHub da Fase 4: **o usuário decidiu (2026-11-14) fazer só depois do teste nos
-   projetores** (item 5). Há outra sessão mexendo na mesma pasta (controle remoto pelo celular):
-   combinar antes de fazer commit para não misturar as duas.
+6. ~~Commit e envio ao GitHub da Fase 4~~ feito (commit `59391f8`, junto com a Fase 5 e o remoto).
 6a. **Abrir o controle remoto num celular de verdade** (mesmo Wi-Fi/roteador do PC): endereço e PIN na
    barra de baixo da tela de comando. Se não abrir, ver se o Wi-Fi é da mesma rede do cabo do PC
    (rede de visitantes costuma isolar os aparelhos). Commit do remoto junto ou separado da Fase 4
@@ -357,10 +444,25 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
    culto, programa reaberto pelo `abrir.cmd`): Liturgia → "Novo culto" do modelo; pôr imagem de fundo
    em cada seção; adicionar música, vídeo, versículo e texto; "Abertura" da seção; "Próximo item" (N)
    e o passador dentro do versículo; um vídeo com "passar sozinho". (O autoteste já passou, ver Status.)
-   Commit da Fase 5 junto com a 4 e o remoto, depois do teste (o usuário decide).
-8. **Fase 6** (`PLANO.md` §5.6): ferramentas (relógio, temporizador, QR code, sorteio), que depois
-   entram como tipos de item da liturgia. (Modo PowerPoint com animações fica para depois, se fizer
-   falta.)
+8. ~~**Fase 6**~~ código pronto em 2026-11-14 (ver Status). **Conferir na tela** (programa reaberto
+   pelo `abrir.cmd`): relógio no canto do Palco; página Ferramentas (temporizador no Palco, mensagem,
+   QR, sorteio); Bíblia → Tabela; música só com a letra (painel grande); item de música "Escolher na
+   hora"; volume (vídeo → áudio não volta ao máximo); botão **Luzes** (testar um cenário **com o
+   usuário olhando**, fora do culto). Commit da Fase 6 (o usuário decide).
+8a. **Conferir nos projetores** os pedidos de 14/11 à tarde: próximo trecho e linha brancos no Palco;
+   imagem mais clara com sombra no texto no Público (se precisar, ajustar "Escurecer a imagem…" em Telas);
+   "ÚLTIMO SLIDE" no Palco no fim de uma apresentação. O relógio no canto do Palco (sup-dir) cobre o canto
+   do próximo slide/da caixa vermelha: se incomodar, mudar a posição dele em Ferramentas.
+9. **Fase 7 — sincronização com o site** (pedido de 2026-11-14): integrar os arquivos de
+   `itaqui.diegoukan.com` (`#automaticos` e `#arquivos`) à biblioteca de Mídias: arquivos novos marcados
+   "novos"; **Provai e Vede, Informativo Mundial das Missões e Informativo da Comunicação substituem os
+   antigos** (os antigos saem) e **atualizam sozinhos os itens da liturgia**; os outros entram como
+   "novos"; se o sonoplasta apagar um importado, vai para "deletados" e **não é importado de novo**;
+   intervalo de atualização a critério do Claude (sugestão: a cada 10 min de sexta 0h a sábado 12h, e
+   1 h no resto da semana, mais um botão "Atualizar agora"). **Bloqueio:** o site pede login; falta o
+   usuário entrar no navegador do painel para o Claude ler a estrutura (ver Decisões). Base: o
+   `sonoplastia_sync.py` e o `prompt-site-sonoplastia.md` em `..\Integração holyrics\`.
+10. (Depois) Modo PowerPoint com animações, se fizer falta.
 
 ## Pendências conhecidas
 
@@ -376,8 +478,15 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
   lugar; áudio "no clique" com vários áudios no mesmo slide toca só o último.
 - Instalador (Fase 8): copiar `scripts/powershell/*.ps1` para `resources\scripts` (o programa
   instalado procura lá; `extraResources` no electron-builder).
-- Liturgia (falta do `PLANO.md` §5.5): itens ligados às séries do site (Fase 7); temporizador, relógio,
-  QR e sorteio como itens (Fase 6); importar a liturgia do Louvor JA (`liturgia.ja`); transição por item.
+- Liturgia (falta do `PLANO.md` §5.5): itens ligados às séries do site (Fase 7); importar a liturgia do
+  Louvor JA (`liturgia.ja`); transição por item.
+- Ferramentas (falta do `PLANO.md` §5.6): som no sorteio; relógio 12 h; vários temporizadores ao mesmo
+  tempo (hoje é um só, com atalhos); importar lista do sorteio de CSV (hoje é colar); temporizador e
+  mensagem no controle remoto do celular; opção de ferramentas por cima do Preto.
+- Luzes: o sistema só "alterna" um relé (sem ligar/desligar direto); se alguém mexer no interruptor ao
+  mesmo tempo, o clique do painel pode inverter. Os cenários são criados na página das luzes.
+- Painel da letra: reabrir a mesma música só com a letra não abre o painel de novo se ele foi
+  minimizado (fica o botão "Letra no ar").
   O controle remoto do celular ainda não mostra nem passa a liturgia. Sem desfazer: excluir item ou seção
   é na hora (a seção com itens pede confirmação).
 

@@ -27,6 +27,15 @@
   --color-hover: #e2e6ec;
   --color-interruptor: #c3cad3;
   --color-tela: #0b0d12;
+  /* grupos de livros da Bíblia (tabela da página Bíblia) */
+  --color-biblia-lei: #7a4b2a;
+  --color-biblia-historia: #c97a1c;
+  --color-biblia-poesia: #c23f37;
+  --color-biblia-profetas: #874089;
+  --color-biblia-evangelhos: #3d4f9a;
+  --color-biblia-atos: #1d879c;
+  --color-biblia-cartas: #1f8458;
+  --color-biblia-apocalipse: #6c962a;
   --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 }
 
@@ -114,6 +123,27 @@ select {
   }
   to {
     left: 100%;
+  }
+}
+
+/* temporizador no fim */
+@keyframes piscar {
+  50% {
+    opacity: 0.2;
+  }
+}
+/* nome sorteado aparecendo */
+@keyframes surgir {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  to {
+    transform: scale(1);
   }
 }
 

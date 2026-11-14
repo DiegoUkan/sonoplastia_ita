@@ -16,12 +16,15 @@ import type { Config } from '../../shared/config'
 import type { Progresso } from '../../shared/dados'
 import { AUDIO, type EstadoMotor, type EstadoTelas, type ModoTela, TODAS } from '../../shared/estado'
 import { api, useAgora, useConfig, useEstado, useTelas, useTelemetrias } from '../compartilhado/ganchos'
+import { EscolhaVersao, FocoLetra } from './FocoMusica'
+import { BotaoLuzes } from './Iluminacao'
 import { IndicadorRemoto, usePassadorRemoto } from './Remoto'
 import { PainelSaidas } from './PainelSaidas'
 import { PaginaApresentacoes } from './PaginaApresentacoes'
 import { PaginaLiturgia } from './PaginaLiturgia'
 import { PaginaBiblia } from './PaginaBiblia'
 import { PaginaConfiguracoes } from './PaginaConfiguracoes'
+import { PaginaFerramentas } from './PaginaFerramentas'
 import { PaginaMidias } from './PaginaMidias'
 import { PaginaMusicas } from './PaginaMusicas'
 import { PaginaTelas } from './PaginaTelas'
@@ -29,7 +32,7 @@ import { PaginaTeste } from './PaginaTeste'
 import { fontesDoPlayer } from './Player'
 import { Segmentado } from './ui'
 
-type Pagina = 'liturgia' | 'midias' | 'musicas' | 'biblia' | 'apresentacoes' | 'teste' | 'telas' | 'configuracoes'
+type Pagina = 'liturgia' | 'midias' | 'musicas' | 'biblia' | 'apresentacoes' | 'ferramentas' | 'teste' | 'telas' | 'configuracoes'
 
 const CONTEUDO: Array<{ id: Pagina; rotulo: string; icone: LucideIcon }> = [
   { id: 'liturgia', rotulo: 'Liturgia', icone: ListOrdered },
@@ -37,21 +40,21 @@ const CONTEUDO: Array<{ id: Pagina; rotulo: string; icone: LucideIcon }> = [
   { id: 'biblia', rotulo: 'Bíblia', icone: BookOpen },
   { id: 'apresentacoes', rotulo: 'Apresentações', icone: Presentation },
   { id: 'midias', rotulo: 'Mídias', icone: FolderOpen },
+  { id: 'ferramentas', rotulo: 'Ferramentas', icone: Wrench },
 ]
 const SISTEMA: Array<{ id: Pagina; rotulo: string; icone: LucideIcon }> = [
   { id: 'teste', rotulo: 'Teste', icone: FlaskConical },
   { id: 'telas', rotulo: 'Telas', icone: Monitor },
   { id: 'configuracoes', rotulo: 'Configurações', icone: Settings },
 ]
-const FUTURAS: Array<{ rotulo: string; icone: LucideIcon; fase: number }> = [
-  { rotulo: 'Ferramentas', icone: Wrench, fase: 6 },
-]
+const FUTURAS: Array<{ rotulo: string; icone: LucideIcon; fase: number }> = []
 const TITULOS: Record<Pagina, string> = {
   midias: 'Mídias',
   musicas: 'Músicas',
   biblia: 'Bíblia',
   apresentacoes: 'Apresentações',
   liturgia: 'Liturgia',
+  ferramentas: 'Ferramentas',
   teste: 'Teste dos projetores',
   telas: 'Telas',
   configuracoes: 'Configurações',
@@ -154,7 +157,7 @@ export function App() {
 
   return (
     <div
-      className="grid h-full grid-rows-[minmax(0,1fr)_28px]"
+      className="relative grid h-full grid-rows-[minmax(0,1fr)_28px]"
       style={{ gridTemplateColumns: `200px minmax(0,1fr) ${recolhido ? '80px' : '344px'}` }}
     >
       <nav className="flex flex-col gap-0.5 border-r border-borda bg-painel p-3">
@@ -165,7 +168,7 @@ export function App() {
         {CONTEUDO.map((p) => (
           <ItemNavegacao key={p.id} id={p.id} icone={p.icone} rotulo={p.rotulo} ativo={pagina === p.id} aoClicar={() => setPagina(p.id)} />
         ))}
-        <div className="mb-1 mt-4 px-2 text-[11px] font-semibold uppercase tracking-wide text-apagado">Em breve</div>
+        {FUTURAS.length > 0 && <div className="mb-1 mt-4 px-2 text-[11px] font-semibold uppercase tracking-wide text-apagado">Em breve</div>}
         {FUTURAS.map((f) => (
           <ItemNavegacao key={f.rotulo} icone={f.icone} rotulo={f.rotulo} dica={`Fase ${f.fase}`} desativado />
         ))}
@@ -196,6 +199,7 @@ export function App() {
           {pagina === 'biblia' && <PaginaBiblia alvo={alvo} config={config} registrarTeclas={registrarTeclas} />}
           {pagina === 'apresentacoes' && <PaginaApresentacoes alvo={alvo} estado={estado} config={config} registrarTeclas={registrarTeclas} />}
           {pagina === 'liturgia' && <PaginaLiturgia alvo={alvo} estado={estado} config={config} registrarTeclas={registrarTeclas} />}
+          {pagina === 'ferramentas' && <PaginaFerramentas estado={estado} config={config} salvar={salvar} />}
           {pagina === 'teste' && (
             <div className="h-full overflow-y-auto">
               <PaginaTeste config={config} alvo={alvo} telemetrias={telemetrias} />
@@ -227,6 +231,10 @@ export function App() {
       />
 
       <BarraStatus config={config} telas={telas} progresso={progresso} />
+
+      {/* por cima da tela de comando (as miniaturas continuam à vista) */}
+      <FocoLetra estado={estado} config={config} direita={recolhido ? 80 : 344} />
+      <EscolhaVersao estado={estado} alvo={alvo} direita={recolhido ? 80 : 344} />
     </div>
   )
 }
@@ -304,6 +312,7 @@ function BarraStatus({ config, telas, progresso }: { config: Config; telas: Esta
         </span>
       )}
       <IndicadorRemoto />
+      <BotaoLuzes config={config} />
       <span className="ml-auto">
         Emergência: <b className="text-texto">{ATALHO_EMERGENCIA.texto}</b> fecha as saídas
       </span>
