@@ -4,7 +4,7 @@
  */
 import { Music, Pause, Play, Repeat, RotateCcw, RotateCw, Square, Volume2, VolumeX } from 'lucide-react'
 import type { Config } from '../../shared/config'
-import { AUDIO, type ControleMidia, type EstadoMotor, type Telemetria, type TelemetriaVideo, TODAS } from '../../shared/estado'
+import { AUDIO, type ControleMidia, type EstadoMotor, type Telemetria, type TelemetriaVideo, TODAS, videoDoConteudo } from '../../shared/estado'
 import { formatarTempo } from '../compartilhado/Camadas'
 import { api } from '../compartilhado/ganchos'
 import { Botao, Deslizante } from './ui'
@@ -21,20 +21,23 @@ export interface FontePlayer {
 /** O que dá para controlar agora: vídeos nas saídas que mostram vídeo e a trilha de áudio. */
 export function fontesDoPlayer(estado: EstadoMotor, config: Config, telemetrias: Record<string, Telemetria>): FontePlayer[] {
   const fontes: FontePlayer[] = []
-  const comVideo = config.saidas.filter((s) => s.mostrarVideo && estado.saidas[s.id]?.conteudo.tipo === 'video')
+  const comVideo = config.saidas.filter((s) => {
+    const e = estado.saidas[s.id]
+    return s.mostrarVideo && !!e && !!videoDoConteudo(e.conteudo)
+  })
   for (const s of comVideo) {
     const e = estado.saidas[s.id]!
-    const c = e.conteudo as { nome: string }
-    fontes.push({ id: s.id, rotulo: s.nome, curto: s.nome.slice(0, 3), nome: c.nome, controle: e.video, telemetria: telemetrias[s.id]?.video ?? null })
+    const v = videoDoConteudo(e.conteudo)!
+    fontes.push({ id: s.id, rotulo: s.nome, curto: s.nome.slice(0, 3), nome: v.nome, controle: e.video, telemetria: telemetrias[s.id]?.video ?? null })
   }
   if (comVideo.length > 1) {
-    const urls = new Set(comVideo.map((s) => (estado.saidas[s.id]!.conteudo as { url: string }).url))
+    const urls = new Set(comVideo.map((s) => videoDoConteudo(estado.saidas[s.id]!.conteudo)!.url))
     if (urls.size === 1) fontes.unshift({ ...fontes[0]!, id: TODAS, rotulo: 'Todas', curto: 'Tod' })
   }
   if (estado.audio.fonte) {
     fontes.push({
       id: AUDIO,
-      rotulo: estado.audio.fonte.tipo === 'musica' ? 'Música' : 'Áudio',
+      rotulo: estado.audio.fonte.tipo === 'musica' ? 'Música' : estado.audio.fonte.tipo === 'slide' ? 'Slide' : 'Áudio',
       curto: estado.audio.fonte.tipo === 'musica' ? 'Mús' : 'Áud',
       nome: estado.audio.fonte.nome,
       controle: estado.audio.controle,

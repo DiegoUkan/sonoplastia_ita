@@ -1,33 +1,42 @@
 /**
- * Página "Músicas": busca (título, número do hino, trecho da letra), importação do Louvor JA,
- * tocar cantado / playback / manual com a letra trocando no tempo, editor e "marcar tempos".
+ * Página "Músicas": busca (título, número do hino, trecho da letra), tocar cantado / playback / manual
+ * com a letra trocando no tempo, barra da música no ar, editor e "marcar tempos".
+ * (Importar do Louvor JA fica em Configurações → Músicas.)
  * Passador de slides: PageDown/PageUp (e setas fora dos campos) andam pelos trechos.
  */
-import { ArrowDown, ArrowUp, Download, Hand, Mic, Music, Pencil, Play, Plus, Save, Search, Square, Timer, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Hand, Mic, Music, Pencil, Play, Plus, Save, Search, Square, Timer, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Musica, Progresso, ResultadoLouvorJa, ResumoMusica, SlideMusicaDados } from '../../shared/dados'
-import type { EstadoMotor, VersaoMusica } from '../../shared/estado'
+import type { Musica, ResumoMusica, SlideMusicaDados } from '../../shared/dados'
+import type { EstadoMotor, TelemetriaVideo, VersaoMusica } from '../../shared/estado'
 import { formatarMs, lerMs, temposDaVersao } from '../../shared/musica'
 import { api } from '../compartilhado/ganchos'
 import type { TeclaPagina } from './App'
 import { mensagemDeErro } from './acoes'
 import { iniciarArraste } from './arrastar'
-import { BarraProgresso, Botao, classeEntrada, Interruptor, Selo } from './ui'
+import { BarraMusicaNoAr } from './BarraMusica'
+import { Botao, classeEntrada, Selo } from './ui'
 
 const digitando = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select')
 
 const melhorVersao = (m: ResumoMusica): VersaoMusica => (m.temCantado ? 'cantado' : m.temPlayback ? 'playback' : 'manual')
 
-const NOMES_VERSAO: Record<VersaoMusica, string> = { cantado: 'Cantado', playback: 'Playback', manual: 'Manual' }
-
-export function PaginaMusicas({ alvo, estado, registrarTeclas }: { alvo: string; estado: EstadoMotor; registrarTeclas: (f: TeclaPagina | null) => void }) {
+export function PaginaMusicas({
+  alvo,
+  estado,
+  telemetriaAudio,
+  registrarTeclas,
+}: {
+  alvo: string
+  estado: EstadoMotor
+  telemetriaAudio: TelemetriaVideo | null
+  registrarTeclas: (f: TeclaPagina | null) => void
+}) {
   const [busca, setBusca] = useState('')
   const [lista, setLista] = useState<ResumoMusica[]>([])
   const [selId, setSelId] = useState<number | null>(null)
   const [musica, setMusica] = useState<Musica | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [editando, setEditando] = useState(false)
-  const [importacao, setImportacao] = useState<{ progresso: Progresso | null; resultado: ResultadoLouvorJa | null } | null>(null)
   const [recarregar, setRecarregar] = useState(0)
 
   useEffect(() => {
@@ -39,14 +48,6 @@ export function PaginaMusicas({ alvo, estado, registrarTeclas }: { alvo: string;
     if (selId === null) setMusica(null)
     else api.obterMusica(selId).then(setMusica)
   }, [selId, recarregar])
-
-  useEffect(
-    () =>
-      api.aoProgresso((p) => {
-        if (p.tarefa === 'louvorja' && !p.fim) setImportacao((i) => ({ progresso: p, resultado: i?.resultado ?? null }))
-      }),
-    [],
-  )
 
   // passador de slides / teclado
   const estadoRef = useRef(estado)
@@ -71,18 +72,6 @@ export function PaginaMusicas({ alvo, estado, registrarTeclas }: { alvo: string;
     setErro(null)
     p.catch((e) => setErro(mensagemDeErro(e)))
   }, [])
-
-  const importar = async (modo: 'todas' | 'liturgia') => {
-    setImportacao({ progresso: null, resultado: null })
-    try {
-      const r = await api.importarLouvorJa(modo)
-      setImportacao({ progresso: null, resultado: r })
-      setRecarregar((n) => n + 1)
-    } catch (e) {
-      setImportacao(null)
-      setErro(mensagemDeErro(e))
-    }
-  }
 
   const noAr = estado.musica
   const estaNoAr = !!(noAr && musica && noAr.musicaId === musica.id)
@@ -110,37 +99,10 @@ export function PaginaMusicas({ alvo, estado, registrarTeclas }: { alvo: string;
               }}
             />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-suave">Louvor JA:</span>
-            <Botao tamanho="sm" icone={Download} disabled={!!importacao && !importacao.resultado} onClick={() => void importar('todas')} title="Importa (ou atualiza) todas as músicas em português">
-              Importar todas
-            </Botao>
-            <Botao tamanho="sm" variante="fantasma" disabled={!!importacao && !importacao.resultado} onClick={() => void importar('liturgia')} title="Só as músicas da liturgia do Louvor JA">
-              Só a liturgia
-            </Botao>
-          </div>
-          {importacao && !importacao.resultado && (
-            <BarraProgresso
-              fracao={importacao.progresso ? importacao.progresso.feito / Math.max(1, importacao.progresso.total) : 0}
-              texto={importacao.progresso ? `${importacao.progresso.feito}/${importacao.progresso.total}` : 'abrindo…'}
-            />
-          )}
-          {importacao?.resultado && (
-            <div className="flex items-start justify-between gap-2 rounded-md bg-painel-2 px-2.5 py-1.5 text-xs text-suave">
-              <span>
-                {importacao.resultado.novas} novas, {importacao.resultado.atualizadas} atualizadas
-                {importacao.resultado.mantidasEditadas ? `, ${importacao.resultado.mantidasEditadas} editadas aqui (mantidas)` : ''}
-                {importacao.resultado.erros.length ? `, ${importacao.resultado.erros.length} com erro` : ''}.
-              </span>
-              <button type="button" className="cursor-pointer text-apagado hover:text-texto" onClick={() => setImportacao(null)}>
-                <X className="size-3.5" />
-              </button>
-            </div>
-          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {lista.length === 0 ? (
-            <p className="p-4 text-sm text-suave">{busca ? 'Nada encontrado.' : 'Nenhuma música ainda. Importe do Louvor JA.'}</p>
+            <p className="p-4 text-sm text-suave">{busca ? 'Nada encontrado.' : 'Nenhuma música ainda. Importe do Louvor JA em Configurações → Músicas.'}</p>
           ) : (
             lista.map((m) => (
               <button
@@ -171,11 +133,13 @@ export function PaginaMusicas({ alvo, estado, registrarTeclas }: { alvo: string;
 
       {/* música escolhida */}
       <div className="flex min-h-0 flex-col">
+        {!editando && (
+          <BarraMusicaNoAr estado={estado} telemetria={telemetriaAudio} selecionada={estaNoAr} aoAbrir={() => noAr && setSelId(noAr.musicaId)} tentar={tentar} />
+        )}
         {!musica ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-suave">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-suave">
             <Music className="size-10 text-apagado" />
             <p className="text-sm">Escolha uma música na lista.</p>
-            {noAr && <p className="text-xs">No ar agora: {noAr.titulo}</p>}
           </div>
         ) : editando ? (
           <EditorMusica
@@ -211,16 +175,6 @@ export function PaginaMusicas({ alvo, estado, registrarTeclas }: { alvo: string;
               )}
               <Botao variante="fantasma" icone={Pencil} onClick={() => setEditando(true)} title="Editar letra e tempos" />
             </div>
-            {estaNoAr && noAr!.versao !== 'manual' && (
-              <div className="flex items-center gap-3 border-b border-borda bg-painel-2 px-5 py-2 text-sm">
-                <span className="size-2 rounded-full bg-ok" />
-                <span className="text-suave">No ar ({NOMES_VERSAO[noAr!.versao]}).</span>
-                <span className="ml-auto flex items-center gap-2 text-suave">
-                  Seguir o áudio
-                  <Interruptor ligado={noAr!.seguirAudio} aoMudar={(v) => tentar(api.comando({ tipo: 'musica:seguir', valor: v }))} rotulo="Seguir o áudio" />
-                </span>
-              </div>
-            )}
             {erro && <div className="border-b border-borda bg-perigo/10 px-5 py-2 text-sm text-perigo-texto">{erro}</div>}
             <div className="min-h-0 flex-1 overflow-y-auto p-5">
               <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))' }}>

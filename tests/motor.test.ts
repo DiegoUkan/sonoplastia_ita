@@ -162,4 +162,81 @@ describe('Motor: trilha de áudio e músicas', () => {
     expect(m.estado.audio.fonte).toBeNull()
     expect(m.estado.musica!.seguirAudio).toBe(false)
   })
+
+  it('quando o áudio da música termina, a música fecha (e não fica a imagem dela)', () => {
+    const m = new Motor(['publico'])
+    m.abrirMusica(musica())
+    m.executar({ tipo: 'audio:terminou', url: 'midia://local/outra.mp3' })
+    expect(m.estado.musica).not.toBeNull()
+    m.executar({ tipo: 'audio:terminou', url: 'midia://local/musica.mp3' })
+    expect(m.estado.musica).toBeNull()
+    expect(m.estado.saidas.publico!.conteudo.tipo).toBe('vazio')
+    expect(m.estado.saidas.publico!.fundo.tipo).toBe('nenhum')
+  })
+
+  it('fim da música: pode ir para o Logo (sem tirar o preto) ou continuar no último trecho', () => {
+    const m = new Motor(['publico', 'palco'])
+    m.aoTerminarMusica = 'logo'
+    m.abrirMusica(musica())
+    m.executar({ tipo: 'tela', alvo: 'palco', tela: 'preto' })
+    m.executar({ tipo: 'audio:terminou', url: 'midia://local/musica.mp3' })
+    expect(m.estado.saidas.publico!.tela).toBe('logo')
+    expect(m.estado.saidas.palco!.tela).toBe('preto')
+    m.aoTerminarMusica = 'manter'
+    m.abrirMusica(musica())
+    m.executar({ tipo: 'audio:terminou', url: 'midia://local/musica.mp3' })
+    expect(m.estado.musica).not.toBeNull()
+  })
+
+  it('com "repetir" ligado o fim do áudio não fecha a música', () => {
+    const m = new Motor(['publico'])
+    m.abrirMusica(musica())
+    m.executar({ tipo: 'repetir', alvo: AUDIO, valor: true })
+    m.executar({ tipo: 'audio:terminou', url: 'midia://local/musica.mp3' })
+    expect(m.estado.musica).not.toBeNull()
+  })
+})
+
+describe('Motor: fundos', () => {
+  const fundoPadrao = { tipo: 'imagem' as const, url: 'midia://local/padrao.jpg', nome: 'padrao.jpg' }
+  const versiculo = { tipo: 'versiculo' as const, texto: 'Porque Deus amou o mundo', referencia: 'João 3:16 (ARA)', segundo: null }
+
+  it('versículo depois da música troca a imagem da música pelo fundo padrão', () => {
+    const m = new Motor(['publico'])
+    m.definirFundoPadrao(fundoPadrao)
+    m.abrirMusica(musica())
+    expect(m.estado.saidas.publico!.fundo).toMatchObject({ url: 'midia://local/fundo.jpg' })
+    m.executar({ tipo: 'mostrar', alvo: TODAS, conteudo: versiculo })
+    expect(m.estado.saidas.publico!.fundo).toEqual(fundoPadrao)
+  })
+
+  it('sem fundo padrão o versículo fica sem imagem; música sem imagem usa o fundo padrão', () => {
+    const m = new Motor(['publico'])
+    m.abrirMusica(musica())
+    m.executar({ tipo: 'mostrar', alvo: TODAS, conteudo: versiculo })
+    expect(m.estado.saidas.publico!.fundo.tipo).toBe('nenhum')
+    m.definirFundoPadrao(fundoPadrao)
+    m.abrirMusica(musica({ fundoUrl: null }))
+    expect(m.estado.saidas.publico!.fundo).toEqual(fundoPadrao)
+  })
+
+  it('imagem, vídeo e slide ficam sem fundo', () => {
+    const m = new Motor(['publico'])
+    m.definirFundoPadrao(fundoPadrao)
+    m.executar({ tipo: 'mostrar', alvo: TODAS, conteudo: versiculo })
+    m.executar({ tipo: 'mostrar', alvo: TODAS, conteudo: video })
+    expect(m.estado.saidas.publico!.fundo.tipo).toBe('nenhum')
+  })
+
+  it('trocar o fundo padrão muda na hora o que já está no ar', () => {
+    const m = new Motor(['publico', 'palco'])
+    m.executar({ tipo: 'mostrar', alvo: 'publico', conteudo: versiculo })
+    m.executar({ tipo: 'mostrar', alvo: 'palco', conteudo: video })
+    const versao = m.estado.versao
+    m.definirFundoPadrao(fundoPadrao)
+    expect(m.estado.saidas.publico!.fundo).toEqual(fundoPadrao)
+    expect(m.estado.saidas.palco!.fundo.tipo).toBe('nenhum')
+    m.definirFundoPadrao({ ...fundoPadrao })
+    expect(m.estado.versao).toBe(versao + 1)
+  })
 })

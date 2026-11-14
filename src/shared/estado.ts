@@ -1,4 +1,5 @@
 /** Tipos do estado das saídas, dos comandos e das telas. Usados pelo motor e pelas janelas. */
+import type { MidiaSlide } from './apresentacao'
 
 export type Conteudo =
   | { tipo: 'vazio' }
@@ -9,6 +10,27 @@ export type Conteudo =
   /** trecho de música; indice -1 = introdução (antes do primeiro trecho) */
   | { tipo: 'letra'; titulo: string; texto: string; proximo: string | null; indice: number; total: number }
   | { tipo: 'versiculo'; texto: string; referencia: string; segundo: { texto: string; referencia: string } | null }
+  /** slide de uma apresentação (imagem); `video` toca por cima, no lugar dele no slide */
+  | {
+      tipo: 'slide'
+      apresentacaoId: number
+      nome: string
+      url: string
+      /** largura / altura do slide */
+      proporcao: number
+      indice: number
+      total: number
+      proximoUrl: string | null
+      notas: string
+      video: MidiaSlide | null
+    }
+
+/** Vídeo que o conteúdo toca: vídeo avulso ou o vídeo de um slide. */
+export function videoDoConteudo(c: Conteudo): { url: string; nome: string } | null {
+  if (c.tipo === 'video') return c
+  if (c.tipo === 'slide' && c.video) return c.video
+  return null
+}
 
 export type Fundo = { tipo: 'nenhum' } | { tipo: 'imagem'; url: string; nome: string }
 
@@ -47,6 +69,8 @@ export type VersaoMusica = 'cantado' | 'playback' | 'manual'
 export type FonteAudio =
   | { tipo: 'audio'; url: string; nome: string; midiaId: number }
   | { tipo: 'musica'; url: string; nome: string; musicaId: number; versao: 'cantado' | 'playback' }
+  /** áudio embutido num slide; `continua` = segue tocando quando o slide muda */
+  | { tipo: 'slide'; url: string; nome: string; apresentacaoId: number; continua: boolean }
 
 export interface EstadoAudio {
   fonte: FonteAudio | null
@@ -73,12 +97,46 @@ export interface EstadoMusica {
   fundoUrl: string | null
 }
 
+export interface SlideNoMotor {
+  url: string
+  proporcao: number
+  oculto: boolean
+  notas: string
+  midias: MidiaSlide[]
+}
+
+export interface EstadoApresentacao {
+  apresentacaoId: number
+  nome: string
+  slides: SlideNoMotor[]
+  /** slide no ar */
+  indice: number
+  alvo: Alvo
+  /** as mídias "no clique" do slide atual já começaram: o próximo clique do passador troca de slide */
+  midiasIniciadas: boolean
+}
+
+/** Liturgia em andamento: o item no ar e o fundo da seção dele. */
+export interface EstadoLiturgia {
+  liturgiaId: number
+  nome: string
+  secaoId: string
+  secaoNome: string
+  /** item no ar (null quando só a abertura da seção foi mostrada) */
+  itemId: string | null
+  /** fundo da seção: fica atrás dos versículos e textos (e das músicas, se `fundoNasMusicas`) */
+  fundo: Fundo
+  fundoNasMusicas: boolean
+}
+
 export interface EstadoMotor {
   /** aumenta a cada mudança; as janelas descartam estados mais velhos que o que já têm */
   versao: number
   saidas: Record<string, EstadoSaida>
   audio: EstadoAudio
   musica: EstadoMusica | null
+  apresentacao: EstadoApresentacao | null
+  liturgia: EstadoLiturgia | null
 }
 
 export const TODAS = 'todas'
@@ -102,6 +160,15 @@ export type Comando =
   | { tipo: 'musica:slide'; indice: number; origem: 'operador' | 'audio' }
   | { tipo: 'musica:seguir'; valor: boolean }
   | { tipo: 'musica:fechar' }
+  /** a janela de áudio avisa que o áudio `url` chegou ao fim (a música fecha, conforme a configuração) */
+  | { tipo: 'audio:terminou'; url: string }
+  /** mostra um slide da apresentação aberta; com `alvo`, passa a mostrar nessas saídas */
+  | { tipo: 'apresentacao:slide'; indice: number; alvo?: Alvo }
+  /** passador: o "próximo" começa as mídias "no clique" do slide antes de trocar de slide */
+  | { tipo: 'apresentacao:passo'; passo: 1 | -1 }
+  | { tipo: 'apresentacao:fechar' }
+  /** encerra a liturgia em andamento: os fundos voltam ao padrão (o que está no ar continua) */
+  | { tipo: 'liturgia:fechar' }
 
 export interface TelemetriaVideo {
   posicao: number

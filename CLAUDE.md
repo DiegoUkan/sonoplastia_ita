@@ -85,6 +85,88 @@ saída).
   - Texto que ajusta o tamanho sozinho (`TextoAjustado`, em % da altura da tela).
   - Banco `C:\Sonoplastia\dados\sonoplastia.db` pelo **`node:sqlite` embutido no Electron 45**
     (Node 24.22, SQLite 3.53 com FTS5): nenhum módulo nativo para compilar.
+- **2026-11-14: Fase 4 (apresentações) implementada, sem o "modo PowerPoint" (animações).** Testado
+  com os testes (Vitest) e o autoteste oculto; **ainda não visto nos projetores**. Feito:
+  - Página **Apresentações**: importa .pptx/.ppsx/.pdf (botão ou arrastar; recusa .ppt/.pptm/.ppsm),
+    cópia em `C:\Sonoplastia\midias\apresentacao\`, conversão em segundo plano (fila, progresso),
+    grade de slides (ocultos apagados, ícones de vídeo/áudio/anotações), renomear, converter de novo,
+    excluir (pergunta antes). Barra de baixo: anterior/próximo, slide no ar, anotações e o próximo.
+  - **PPTX → PNG pelo PowerPoint (COM)**: `scripts/powershell/pptx-exportar.ps1` (anotações e slides
+    ocultos junto). **PDF → PNG pelo leitor de PDF do Windows** (`Windows.Data.Pdf`):
+    `scripts/powershell/pdf-exportar.ps1`. Nada novo para instalar. Imagens e miniaturas em
+    `C:\Sonoplastia\cache\slides\<id>\<versão>\`; largura configurável (padrão 1920).
+  - **Vídeos e áudios embutidos**: lidos do XML do .pptx (leitor de ZIP próprio, `src/main/apresentacoes/`),
+    com posição, "no clique"/"sozinho", repetir e "tocar entre slides". Vídeo toca por cima do slide,
+    no lugar dele; áudio vai para a trilha de áudio. O 1º "próximo" começa a mídia "no clique", o 2º
+    troca de slide (como no PowerPoint). O player controla o vídeo do slide; "parar" volta ao começo.
+  - Saídas: slide inteiro (faixas pretas se a proporção for outra); **Palco** com slide atual, próximo
+    e número do slide (opção nova por saída) e, se ligar, as anotações; o Palco não decodifica o vídeo
+    (selo com o tempo que falta).
+  - **Passador**: PageDown/PageUp/setas, Home/End, número + Enter; em outra página (que não use o
+    passador) PageDown/PageUp ainda andam a apresentação no ar. "." também liga o Preto.
+  - Autoteste real neste PC: "IDEAIS EQUIPE aventureiros" (74 MB, 10 slides, áudio no 3, vídeo no 7)
+    + "Mordomia.pdf" (16 páginas) importados em 24 s; vídeo esperou o clique e tocou sem perder quadros.
+- **2026-11-14: músicas do dia importadas + controle remoto pelo celular.** Feito em paralelo com a
+  Fase 4, por outra sessão, na mesma pasta.
+  - Banco real (`C:\Sonoplastia\dados\sonoplastia.db`, cópia de antes em
+    `sonoplastia.antes-musicas-2026-11-14.db`) com 8 músicas do Louvor JA, versões escolhidas pelo
+    usuário: Casa de Benção (LJA 1676, só cantado), Intensamente (4767), Porque Ele Vive HA 471 (2218),
+    Somos Teus Senhor HA 235 (1972), Mensageiro (136), Verei Jesus "Adoradores 2" (1321), Fortes (904),
+    Unidos pela Palavra HA 54 (1781). Importadas com o próprio `importarLouvorJa` (lista de ids).
+  - **Controle remoto**: servidor HTTP no processo principal (`src/main/remoto/`), porta 8090, em todas
+    as placas de rede. O celular abre `http://<IP>:8090` (IP deste PC hoje: 192.168.3.11, rede "Particular"),
+    digita o PIN (criado sozinho no 1º uso; o usuário escolheu um e, logo depois, **pediu para ficar
+    sem PIN**: desligar "Pedir PIN" em Configurações → Controle remoto. Com o programa aberto, mudar
+    pela tela, não no config.json, que o programa regrava). Página própria `remoto.html` (React, mesma aparência): Preto/Limpar/Logo em todas
+    e por saída, o que está no ar, player (tocar/pausar, ±10 s, parar, volume, mudo), Músicas
+    (busca, cantado/playback/só letra, trechos, seguir o áudio), Bíblia (referência, versículos,
+    capítulos), Mídias, "Enviar para" e o **passador** fixo embaixo.
+  - Testado com Vitest (`tests/remoto.test.ts`) e no autoteste (passo `remoto`: API + a página numa janela
+    oculta de 390×844). **Ainda não aberto num celular de verdade.** O Firewall do Windows já tem regra
+    "Permitir" para o electron.exe na rede Particular.
+- **2026-11-14 (tarde): pedidos do usuário durante o uso real.** Testado com Vitest (109), typecheck e
+  build numa pasta à parte (o programa estava aberto, então `out\` não foi recompilado). **Ainda não visto
+  na tela:** precisa fechar o programa e abrir pelo `abrir.cmd`.
+  - **Barra da música no ar** (`src/renderer/comando/BarraMusica.tsx`), no alto da coluna da música na
+    página Músicas, aparece sempre que há música no ar (mesmo com outra escolhida na lista): tocar/pausar,
+    tempo, trilha com uma marca no começo de cada trecho (clicar/arrastar pula), "Trecho 15/50" e "Seguir
+    áudio". No manual, a trilha é pelos trechos e clicar vai ao trecho.
+  - **Importar do Louvor JA saiu da página Músicas** ("Importar todas" e "Só a liturgia"). Agora só
+    "Importar todas de novo…" em Configurações → Músicas, com explicação e confirmação. O programa recusa
+    uma segunda importação ao mesmo tempo. O `modo 'liturgia'` ainda existe no código, sem botão.
+  - **Configurações em pastas** (cartões; clicar entra; "← Configurações" volta). A pasta aberta fica
+    lembrada enquanto o programa está aberto.
+  - **Fundo padrão** (Configurações → Fundos) e **a música fecha sozinha quando o áudio termina** (antes a
+    saída ficava parada na foto da música). Regras em "Decisões".
+- **2026-11-14 (tarde): Fase 5 (liturgia) implementada, com SEÇÕES** (pedido do usuário: "cada seção tem
+  uma imagem de fundo e agrupa os itens: Escola Sabatina, Louvor, Mensagem, Momento Infantil…").
+  Testado com Vitest (125, 16 novos em `tests/liturgia.test.ts`), typecheck e **autoteste às 14h30,
+  depois do culto** (build separado em `out-teste`, ver "Como rodar"; o programa de verdade continuou
+  aberto): texto no ar com o fundo da seção no Público, passador de João 3:16 para 3:17, painel
+  "Adicionar". As capturas mostraram a tela apertada a 1366 px; corrigido (painel lateral só quando em
+  uso, botão "Abertura" vira ícone em seção estreita, linha de informações da seção com a largura toda).
+  **Ainda não visto nos projetores nem usado pelo operador.** Feito:
+  - Página **Liturgia** (primeira do menu e a que abre ao iniciar): escolher o culto (cultos por data e
+    modelos), "Novo culto" a partir de um modelo (data = próximo sábado), nome, data, horário de início,
+    "Modelo" (salva cópia como modelo), duplicar, excluir. Grava sozinho 0,5 s depois de cada mudança.
+  - **Seções**: nome, imagem de fundo (clicar no quadrado ou arrastar uma imagem até ele; a imagem é
+    copiada para `C:\Sonoplastia\midias\fundos\`), "fundo também nas músicas", subir/descer, remover,
+    **Abertura** (mostra a imagem da seção em tela cheia, ou o nome sem imagem). Modelo padrão criado no
+    1º uso: "Culto de sábado" com Escola Sabatina, Louvor, Momento Infantil, Mensagem (9:00).
+  - **Itens**: música (cantado/playback/só letra), mídia (vídeo/imagem/áudio), apresentação, versículo
+    (referência digitada + versão), texto, tela preta/logo. Painel "Adicionar" (busca na biblioteca) e
+    "Editar" (título, saída própria, duração, "passar sozinho no fim", ligado/desligado, observação).
+    Arrastar para reordenar ou mudar de seção; arrastar arquivos do Explorer para a seção importa e
+    acrescenta; arrastar um item até a miniatura de uma saída põe no ar só nela.
+  - **Modo culto** (barra de baixo): item no ar + observação, Anterior / **Próximo item** (teclas P / N),
+    o que vem depois, relógio e atraso em relação ao horário previsto (só no dia do culto). Horário
+    previsto de cada seção e item = início + durações dos itens ligados. "encerrar" tira o fundo da seção.
+  - Execução no processo principal (`src/main/liturgia/executor.ts`): o passador anda DENTRO do item no ar
+    (versículos e partes dos longos, slides, trechos da música); vídeo/áudio/música com "passar sozinho"
+    vão para o próximo item quando terminam (telemetria do vídeo; `audio:terminou` do áudio). Item com
+    problema (mídia apagada) avisa e fica marcado, para o próximo clique passar dele.
+  - Banco: migração 3, tabela `liturgias` (seções e itens num JSON validado por zod em
+    `src/shared/liturgia.ts`).
 
 ## Decisões
 
@@ -97,7 +179,15 @@ saída).
 - **Nunca decodificar o mesmo vídeo duas vezes** (PC fraco): o Palco mostra "vídeo tocando + tempo
   restante" e as miniaturas usam quadros capturados.
 - PPTX: exportar slides como imagem pelo **PowerPoint (COM)** na importação; modo PowerPoint nativo
-  opcional para animações. PDF por pdf.js.
+  opcional para animações (ainda não feito). **PDF pelo leitor de PDF do Windows** (`Windows.Data.Pdf`
+  num script PowerShell), também na importação, no lugar do pdf.js (decidido em 2026-11-14: sem
+  dependência nova, sem worker nem fontes para configurar; testado neste PC).
+- O script do PowerPoint nunca fecha um PowerPoint que já estava aberto (só a apresentação que abriu);
+  se travar por 2 min, o programa encerra o script e só o PowerPoint que ele mesmo abriu.
+- Apresentações seguem a regra da música: o passador só atualiza as saídas que ainda mostram a
+  apresentação; se nenhuma mostra mais, o "próximo" traz de volta o mesmo slide (não avança escondido).
+  Clicar num slide mostra no "Enviar para" atual.
+- Notas do orador ficam no estado do motor (são transmitidas só quando o slide muda).
 - Músicas: importador lê o banco SQLite do Louvor JA em somente leitura (porta do `lja.py`), guarda a
   origem `LJA-<id>` e não sobrescreve edições locais.
 - Bíblia: JSON no formato `damarals/biblias` (ARA e NVI já existem no projeto de transcrição), busca
@@ -127,6 +217,43 @@ saída).
 - Palco por padrão: sem vídeo (só nome e tempo), música sem fundo e com o próximo trecho. Configs
   antigas ganham esses padrões no Palco (`completarPadroesDoPalco`).
 - Controles deslizantes e listas largam o foco depois de usados (o passador de slides manda setas).
+- **Controle remoto** (`src/main/remoto/`, `src/renderer/remoto/`): HTTP + Server-Sent Events, sem
+  biblioteca nova. Só os métodos de `METODOS_REMOTO` (`src/shared/remoto.ts`); comandos conferidos por
+  `comandoRemoto` (arquivos só por `midia://`); PIN com cookie `HttpOnly; SameSite=Strict`; corpo só
+  JSON; espera crescente depois de 5 PINs errados. Ligado por padrão, pedindo PIN.
+- Passador do celular = PageDown/PageUp na tela de comando (`window.dispatchEvent` em
+  `usePassadorRemoto`), pelo mesmo caminho do teclado: a página aberta decide; sem ela, a apresentação
+  no ar. Exceções na própria página do celular: na aba Bíblia com versículo no ar, anda os versículos
+  dela; com a letra de uma música no ar, anda os trechos.
+- **Fundo de cada saída vem do tipo de conteúdo** (`fundoDe` no motor, aplicado a cada "mostrar"): letra
+  usa a imagem da música (ou o fundo padrão, se ela não tem ou se "usar a imagem da própria música" está
+  desligado); versículo e texto usam o fundo padrão; imagem, vídeo, slide e vazio ficam sem fundo. Trocar o
+  fundo padrão muda na hora o que está no ar (`definirFundoPadrao`). O comando `fundo` manual (página
+  Teste) vale até o próximo conteúdo. Por saída: "Bíblia e textos: mostrar o fundo padrão" (`textoComFundo`;
+  o Palco vem desligado, como o fundo das músicas).
+- **Fim do áudio da música:** a janela de áudio manda `audio:terminou` com a url, e o motor só aceita se
+  for o áudio que está tocando e sem "repetir". O que acontece depende de `musicas.aoTerminar`: fechar a
+  música (padrão, a tela fica vazia), fechar e mostrar o Logo (o Preto continua) ou manter como antes.
+  Esse comando não está na lista do controle remoto.
+- Configurações: cada pasta é um item de `PASTAS` em `PaginaConfiguracoes.tsx`. Uma opção nova entra no
+  esquema da pasta dela (e aparece sozinha); uma pasta nova é um item novo em `PASTAS`.
+- Montar o versículo para as saídas: `conteudoDoVersiculo` (`src/shared/biblia/mostrar.ts`), usado pelo
+  celular. A página Bíblia do computador ainda tem a mesma lógica dentro dela (unificar depois).
+  A liturgia (executor) também usa `conteudoDoVersiculo`.
+- **Liturgia em seções; o fundo é da seção.** O motor guarda a liturgia em andamento (`estado.liturgia`:
+  item no ar, seção e o fundo dela). Regra dos fundos (`fundoDe` no motor): com seção no ar e imagem
+  nela, versículo e texto usam o fundo da seção no lugar do padrão; a letra também, se a seção tem
+  "fundo também nas músicas" (padrão ligado); senão a imagem da música. "encerrar" volta tudo ao padrão.
+  Mostrar outra coisa por outra página não encerra a liturgia (o versículo do pregador na Mensagem
+  fica com o fundo da Mensagem).
+- Liturgia guardada como documento JSON (seções + itens) numa linha da tabela `liturgias`, validado
+  pelo esquema zod a cada gravação; os itens apontam para a biblioteca pelo id (música, mídia,
+  apresentação). Item que aponta para algo apagado só dá erro na hora de pôr no ar.
+- Passador na página Liturgia anda DENTRO do item (nunca pula para o próximo item sozinho: isso é o
+  "Próximo item", tecla N, ou o "passar sozinho" no fim de vídeo/áudio/música). Item sem "dentro"
+  (vídeo, imagem, texto): a tecla segue para a apresentação no ar, se houver.
+- "Item ligado/desligado": o desligado fica na lista (para outra vez), mas o "Próximo item" pula ele e
+  ele não conta no horário previsto.
 
 ## PC da igreja (onde o programa vai rodar)
 
@@ -159,7 +286,12 @@ npm run build; node_modules\electron\dist\electron.exe . --autoteste
 Gera PNGs de cada janela em cada passo e `relatorio.json`. Passos: padrão de teste; vídeo (buscar
 para 30 s, miniaturas ao vivo andando); Bíblia (importa a ARA do projeto de transcrição e digita
 "jo 3 16" + Enter na página); música (importa do Louvor JA, toca cantado e confere a troca de trecho
-aos 8 s); biblioteca (importa e analisa um vídeo); coluna recolhida; emergência. Janela oculta só
+aos 8 s); biblioteca (importa e analisa um vídeo); apresentação (importa um .pptx com vídeo/áudio e um
+PDF reais deste PC, mostra, dá o clique do vídeo); controle remoto (PIN, métodos proibidos, passador,
+e a página do celular numa janela oculta, com PNGs `r*-celular.png`); liturgia (culto de hoje do
+modelo, seção com fundo, texto → versículo com o passador, PNGs `L*`); coluna recolhida; emergência.
+`SONOPLASTIA_AUTOTESTE_PULAR=apresentacao,video` pula passos. **Abre o PowerPoint
+(oculto) e pesa no computador: não rodar durante o culto.** Janela oculta só
 pinta quando é capturada, por isso o autoteste captura duas vezes, e as transições CSS aparecem
 congeladas no meio. Isso não acontece nas janelas visíveis.
 
@@ -172,6 +304,13 @@ Cuidados descobertos:
 - Electron rodando como Node (`ELECTRON_RUN_AS_NODE=1`) só mostra a saída se ela for redirecionada
   (`Start-Process -RedirectStandardOutput`).
 - `SONOPLASTIA_DADOS` troca a pasta de dados (padrão `C:\Sonoplastia`).
+- **Autoteste com o programa aberto** (não recompilar `out\`, que ele está usando): compilar em
+  `out-teste` com caminho ABSOLUTO (`npx electron-vite build --outDir "<projeto>\out-teste"`; relativo, as
+  telas vão parar em `src\renderer\out-teste`), criar `out-teste\package.json` com
+  `{"name":"sonoplastia-teste","main":"./main/index.js"}` (outro nome = outra pasta de perfil do
+  Chromium), copiar `scripts\powershell\*.ps1` para `out-teste\scripts\powershell\` e rodar
+  `electron.exe out-teste --autoteste` com `SONOPLASTIA_DADOS`/`SONOPLASTIA_AUTOTESTE`. Apagar
+  `out-teste` depois (não está no `.gitignore`).
 - O `git` instalado depois não está no PATH do shell do Claude: usar `"C:\Program Files\Git\cmd\git.exe"`.
 
 **O Claude (app de desktop) roda num contêiner MSIX neste PC:** o que o shell do Claude grava em
@@ -199,12 +338,29 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
 2. ~~Enviar ao GitHub~~ feito em 2026-11-07: `https://github.com/DiegoUkan/sonoplastia_ita` (ramo
    `main`). O shell do Claude **não consegue pedir login** (contêiner MSIX): se o login salvo for
    removido, enviar por um `.cmd` aberto com `explorer.exe`, que mostra a janela do GitHub.
-3. **Conferir as Fases 1–3 no PC de verdade** (fora do culto): Músicas → "Importar todas" (1.886
+3. **Conferir as Fases 1–3 no PC de verdade** (fora do culto): Configurações → Músicas → "Importar todas de novo…" (1.886
    músicas), Bíblia → importar ARA e NVI, Mídias → arrastar alguns vídeos do Holyrics; tocar uma
    música cantada e ver a letra trocar no projetor; escolher a saída de som (mesa) em Configurações.
    Medir memória e CPU com tudo aberto (miniaturas ao vivo ligadas).
-4. Commit e envio ao GitHub das Fases 1–3 (o usuário decide).
-5. **Fase 4** (`PLANO.md` §5.4): apresentações PPTX (PowerPoint COM) e PDF.
+4. ~~Commit e envio ao GitHub das Fases 1–3~~ feito (commit `20c3085`).
+5. **Conferir a Fase 4 no PC de verdade** (fora do culto): Apresentações → importar um sermão .pptx
+   e um .pdf; passar com o passador de slides no Público e ver o Palco (atual + próximo); um slide
+   com vídeo (1º clique toca, 2º passa). Ligar "anotações" no Palco em Telas, se o pregador quiser.
+6. Commit e envio ao GitHub da Fase 4: **o usuário decidiu (2026-11-14) fazer só depois do teste nos
+   projetores** (item 5). Há outra sessão mexendo na mesma pasta (controle remoto pelo celular):
+   combinar antes de fazer commit para não misturar as duas.
+6a. **Abrir o controle remoto num celular de verdade** (mesmo Wi-Fi/roteador do PC): endereço e PIN na
+   barra de baixo da tela de comando. Se não abrir, ver se o Wi-Fi é da mesma rede do cabo do PC
+   (rede de visitantes costuma isolar os aparelhos). Commit do remoto junto ou separado da Fase 4
+   (o usuário decide). Apagar a pasta de teste `C:\Sonoplastia-teste-remoto` se ainda existir.
+7. ~~**Fase 5** (liturgia)~~ código pronto em 2026-11-14, com seções. **Conferir na tela** (fora do
+   culto, programa reaberto pelo `abrir.cmd`): Liturgia → "Novo culto" do modelo; pôr imagem de fundo
+   em cada seção; adicionar música, vídeo, versículo e texto; "Abertura" da seção; "Próximo item" (N)
+   e o passador dentro do versículo; um vídeo com "passar sozinho". (O autoteste já passou, ver Status.)
+   Commit da Fase 5 junto com a 4 e o remoto, depois do teste (o usuário decide).
+8. **Fase 6** (`PLANO.md` §5.6): ferramentas (relógio, temporizador, QR code, sorteio), que depois
+   entram como tipos de item da liturgia. (Modo PowerPoint com animações fica para depois, se fizer
+   falta.)
 
 ## Pendências conhecidas
 
@@ -215,6 +371,15 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
   fonte confirmada; ver com o usuário.
 - Músicas: importar as que existem só no Holyrics ainda não foi feito.
 - O pacote do renderer tem ~600 kB (React + ícones); não pesa porque carrega do disco.
+- Apresentações: sem o modo PowerPoint (animações e transições do PowerPoint não aparecem: cada slide
+  é uma imagem). Só o 1º vídeo de cada slide toca; vídeo dentro de grupo de formas pode ficar fora do
+  lugar; áudio "no clique" com vários áudios no mesmo slide toca só o último.
+- Instalador (Fase 8): copiar `scripts/powershell/*.ps1` para `resources\scripts` (o programa
+  instalado procura lá; `extraResources` no electron-builder).
+- Liturgia (falta do `PLANO.md` §5.5): itens ligados às séries do site (Fase 7); temporizador, relógio,
+  QR e sorteio como itens (Fase 6); importar a liturgia do Louvor JA (`liturgia.ja`); transição por item.
+  O controle remoto do celular ainda não mostra nem passa a liturgia. Sem desfazer: excluir item ou seção
+  é na hora (a seção com itens pede confirmação).
 
 ## Perguntas em aberto
 

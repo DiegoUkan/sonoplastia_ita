@@ -10,18 +10,21 @@ import {
   net,
   type WebPreferences,
 } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import { ATALHO_EMERGENCIA } from '../shared/atalhos'
 import type { Config } from '../shared/config'
 import type { FiltroMidias, Progresso, SlideMusicaDados } from '../shared/dados'
-import type { Alvo, Comando, Telemetria, VersaoMusica } from '../shared/estado'
-import { CANAIS, type ResultadoSonda, type TipoArquivo } from '../shared/ipc'
+import type { Alvo, Comando, Fundo, Telemetria, VersaoMusica } from '../shared/estado'
+import type { AlteracaoLiturgia } from '../shared/liturgia'
+import { CANAIS,type ResultadoSonda, type TipoArquivo } from '../shared/ipc'
 import { temposDaVersao } from '../shared/musica'
+import { BibliotecaApresentacoes } from './apresentacoes/biblioteca'
+import { criarConversor } from './apresentacoes/conversao'
 import { rodarAutoteste } from './autoteste'
 import { abrirBanco } from './banco'
 import { RepositorioBiblia } from './biblia/repositorio'
-import { BibliotecaMidias } from './biblioteca/midias'
+import { BibliotecaMidias, nomeLivre } from './biblioteca/midias'
 import { Sonda } from './biblioteca/sonda'
 import { caminhos, garantirPastas } from './caminhos'
 import { ArmazemConfig } from './config'
@@ -30,7 +33,10 @@ import { iniciarLog, log } from './log'
 import { liberarArquivo, permitirPasta, registrarEsquemaPrivilegiado, tratarProtocoloMidia } from './midia'
 import { Motor } from './motor'
 import { importarLouvorJa } from './musicas/louvorJa'
+import { ExecutorLiturgia } from './liturgia/executor'
+import { RepositorioLiturgias } from './liturgia/repositorio'
 import { RepositorioMusicas } from './musicas/repositorio'
+import { ligarControleRemoto } from './remoto/ligar'
 import { GerenciadorTelas } from './telas/gerenciador'
 
 const AUTOTESTE = process.argv.includes('--autoteste')
@@ -41,6 +47,7 @@ registrarEsquemaPrivilegiado()
 
 let janelaComando: BrowserWindow | null = null
 let janelaAudio: BrowserWindow | null = null
+let executorLiturgia: ExecutorLiturgia | null = null
 let encerrando = false
 
 if (!AUTOTESTE && !app.requestSingleInstanceLock()) {
@@ -140,10 +147,19 @@ async function iniciar(): Promise<void> {
   permitirPasta(cfg.musicas.pastaLouvorJa)
   tratarProtocoloMidia()
   if (cfg.telaEspera.imagem) liberarArquivo(cfg.telaEspera.imagem)
+  /** fundo padrão das configurações (some se o arquivo não existe mais) */
+  const fundoPadrao = (c: Config): Fundo => {
+    const p = c.fundos.padrao
+    return p && existsSync(p) ? { tipo: 'imagem', url: liberarArquivo(p), nome: basename(p) } : { tipo: 'nenhum' }
+  }
 
   const db = abrirBanco(caminhos.banco)
   const motor = new Motor(cfg.saidas.map((s) => s.id))
   motor.clicarPulaAudio = cfg.musicas.clicarPulaAudio
+  motor.pularOcultos = cfg.apresentacoes.pularOcultos
+  motor.midiasDosSlides = cfg.apresentacoes.midiasDosSlides
+  motor.aoTerminarMusica = cfg.musicas.aoTerminar
+  motor.definirFundoPadrao(fundoPadrao(cfg))
   const telemetrias = new Map<string, Telemetria>()
   const pastaRecursos = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
   const ffmpeg = acharFfmpeg(pastaRecursos)
@@ -152,6 +168,13 @@ async function iniciar(): Promise<void> {
   const midias = new BibliotecaMidias(db, { base: caminhos.midias, miniaturas: caminhos.miniaturas }, sonda, ffmpeg)
   const musicas = new RepositorioMusicas(db)
   const biblia = new RepositorioBiblia(db)
+  // scripts do PowerShell que transformam slides em imagens (no instalador: resources\scripts)
+  const pastaScripts = app.isPackaged ? join(process.resourcesPath, 'scripts') : join(app.getAppPath(), 'scripts', 'powershell')
+  const apresentacoes = new BibliotecaApresentacoes(
+    db,
+    { arquivos: caminhos.apresentacoes, slides: caminhos.slides },
+    criarConversor({ pastaScripts, sonda, ffmpeg, largura: () => Number(armazem.obter().apresentacoes.largura) || 1920 }),
+  )
   const progresso = (p: Progresso) => janelaComando?.webContents.send(CANAIS.progresso, p)
 
   const criarJanelaSaida = (saidaId: string, opcoes: BrowserWindowConstructorOptions) => {
@@ -172,6 +195,10 @@ async function iniciar(): Promise<void> {
     if (c.telaEspera.imagem) liberarArquivo(c.telaEspera.imagem)
     permitirPasta(c.musicas.pastaLouvorJa)
     motor.clicarPulaAudio = c.musicas.clicarPulaAudio
+    motor.pularOcultos = c.apresentacoes.pularOcultos
+    motor.midiasDosSlides = c.apresentacoes.midiasDosSlides
+    motor.aoTerminarMusica = c.musicas.aoTerminar
+    motor.definirFundoPadrao(fundoPadrao(c))
     motor.sincronizarSaidas(c.saidas.map((s) => s.id))
     aplicarTema(c)
     telas.reconciliar()
@@ -188,7 +215,11 @@ async function iniciar(): Promise<void> {
   })
 
   // --- motor, configurações e telas
-  ipcMain.handle(CANAIS.comando, (_e, c: Comando) => motor.executar(c))
+  ipcMain.handle(CANAIS.comando, (_e, c: Comando) => {
+    motor.executar(c)
+    // fim do áudio: a liturgia pode passar sozinha para o próximo item
+    if (c.tipo === 'audio:terminou') executorLiturgia?.aoTerminarAudio(c.url)
+  })
   ipcMain.handle(CANAIS.obterEstado, () => motor.estado)
   ipcMain.handle(CANAIS.obterConfig, () => armazem.obter())
   ipcMain.handle(CANAIS.salvarConfig, (_e, c: unknown) => armazem.salvar(c))
@@ -207,6 +238,7 @@ async function iniciar(): Promise<void> {
   })
   ipcMain.on(CANAIS.telemetria, (_e, t: Telemetria) => {
     telemetrias.set(t.saidaId, t)
+    executorLiturgia?.aoTelemetria(t)
     transmitir(CANAIS.telemetria, t)
   })
   ipcMain.on(CANAIS.sondaResultado, (_e, r: ResultadoSonda) => sonda.receber(r))
@@ -289,20 +321,27 @@ async function iniciar(): Promise<void> {
       versao,
       slides: m.slides.map((s, i) => ({ texto: s.texto, ms: tempos[i] ?? 0 })),
       alvo,
-      fundoUrl: arq.imagem && existsSync(arq.imagem) ? liberarArquivo(arq.imagem) : null,
+      fundoUrl: c.fundos.musicaImagemPropria && arq.imagem && existsSync(arq.imagem) ? liberarArquivo(arq.imagem) : null,
       audioUrl: caminhoAudio ? liberarArquivo(caminhoAudio) : null,
       tituloNaIntroducao: c.musicas.tituloNaIntroducao,
       indice,
     })
   }
   ipcMain.handle(CANAIS.abrirMusica, (_e, id: number, versao: VersaoMusica, alvo: Alvo, indice?: number) => abrirMusica(id, versao, alvo, indice))
+  let importandoLouvorJa = false
   ipcMain.handle(CANAIS.importarLouvorJa, async (_e, modo: 'todas' | 'liturgia') => {
-    const r = await importarLouvorJa(db, musicas, armazem.obter().musicas.pastaLouvorJa, modo, (feito, total) =>
-      progresso({ tarefa: 'louvorja', feito, total }),
-    )
-    progresso({ tarefa: 'louvorja', feito: 1, total: 1, fim: true })
-    log.info('Louvor JA importado:', JSON.stringify({ ...r, erros: r.erros.length }))
-    return r
+    if (importandoLouvorJa) throw new Error('A importação do Louvor JA já está em andamento (veja a barra de baixo).')
+    importandoLouvorJa = true
+    try {
+      const r = await importarLouvorJa(db, musicas, armazem.obter().musicas.pastaLouvorJa, modo, (feito, total) =>
+        progresso({ tarefa: 'louvorja', feito, total }),
+      )
+      log.info('Louvor JA importado:', JSON.stringify({ ...r, erros: r.erros.length }))
+      return r
+    } finally {
+      importandoLouvorJa = false
+      progresso({ tarefa: 'louvorja', feito: 1, total: 1, fim: true })
+    }
   })
 
   // --- bíblia
@@ -342,6 +381,137 @@ async function iniciar(): Promise<void> {
   ipcMain.handle(CANAIS.totalCapitulos, (_e, sigla: string, livro: number) => biblia.totalCapitulos(sigla, livro))
   ipcMain.handle(CANAIS.buscarBiblia, (_e, sigla: string, termo: string) => biblia.buscar(sigla, termo))
 
+  // --- apresentações
+  let avisoApresentacoes: NodeJS.Timeout | null = null
+  apresentacoes.on('mudou', () => {
+    if (avisoApresentacoes) return
+    avisoApresentacoes = setTimeout(() => {
+      avisoApresentacoes = null
+      janelaComando?.webContents.send(CANAIS.apresentacoesMudaram)
+    }, 250)
+  })
+  apresentacoes.on('progresso', (p: { feito: number; total: number; nome?: string; fim?: boolean }) =>
+    progresso({ tarefa: 'apresentacoes', feito: p.feito, total: p.total, texto: p.nome, fim: p.fim }),
+  )
+  const abrirApresentacao = (id: number, alvo: Alvo, indice?: number) => {
+    const a = apresentacoes.obter(id)
+    if (!a) throw new Error('Apresentação não encontrada.')
+    if (a.situacao !== 'pronto' || !a.slides.length) throw new Error('A apresentação ainda não está pronta (convertendo ou com erro).')
+    motor.abrirApresentacao({
+      apresentacaoId: a.id,
+      nome: a.nome,
+      alvo,
+      indice,
+      slides: a.slides.map((s) => ({ url: s.url, proporcao: s.largura / Math.max(1, s.altura), oculto: s.oculto, notas: s.notas, midias: s.midias })),
+    })
+  }
+  ipcMain.handle(CANAIS.listarApresentacoes, (_e, busca: string) => apresentacoes.listar(busca))
+  ipcMain.handle(CANAIS.obterApresentacao, (_e, id: number) => apresentacoes.obter(id))
+  ipcMain.handle(CANAIS.importarApresentacoes, (_e, lista: string[]) => apresentacoes.importar(lista))
+  ipcMain.handle(CANAIS.escolherEImportarApresentacoes, async () => {
+    const r = await dialog.showOpenDialog(janelaComando!, {
+      title: 'Importar apresentações',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'PowerPoint e PDF', extensions: ['pptx', 'ppsx', 'pdf'] }],
+    })
+    if (r.canceled) return { importadas: [], repetidas: [], ignoradas: [] }
+    return apresentacoes.importar(r.filePaths)
+  })
+  ipcMain.handle(CANAIS.renomearApresentacao, (_e, id: number, nome: string) => apresentacoes.renomear(id, nome))
+  ipcMain.handle(CANAIS.reconverterApresentacao, (_e, id: number) => apresentacoes.reconverter(id))
+  ipcMain.handle(CANAIS.abrirApresentacao, (_e, id: number, alvo: Alvo, indice?: number) => abrirApresentacao(id, alvo, indice))
+  ipcMain.handle(CANAIS.excluirApresentacao, async (_e, id: number) => {
+    const a = apresentacoes.obter(id)
+    if (!a) return false
+    const r = await dialog.showMessageBox(janelaComando!, {
+      type: 'warning',
+      buttons: ['Excluir', 'Cancelar'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Excluir apresentação',
+      message: `Excluir "${a.nome}"?`,
+      detail: 'Saem do programa a cópia do arquivo e as imagens dos slides. Não dá para desfazer. O arquivo original, de onde ela foi importada, não é mexido.',
+    })
+    if (r.response !== 0) return false
+    if (motor.estado.apresentacao?.apresentacaoId === id) motor.executar({ tipo: 'apresentacao:fechar' })
+    apresentacoes.apagar(id)
+    return true
+  })
+
+  // --- liturgia
+  const liturgias = new RepositorioLiturgias(db)
+  liturgias.garantirModeloPadrao()
+  executorLiturgia = new ExecutorLiturgia({
+    motor,
+    obterLiturgia: (id) => liturgias.obter(id),
+    config: () => armazem.obter(),
+    abrirMusica: (id, versao, alvo) => abrirMusica(id, versao, alvo),
+    abrirApresentacao,
+    obterMidia: (id) => midias.obter(id),
+    capitulo: (sigla, livro, cap) => biblia.capitulo(sigla, livro, cap),
+    versoes: () => biblia.versoes(),
+    urlFundo: (c) => (existsSync(c) ? liberarArquivo(c) : null),
+  })
+  const execLit = executorLiturgia
+  const avisarLiturgias = () => janelaComando?.webContents.send(CANAIS.liturgiasMudaram)
+  /** copia a imagem de fundo para C:\Sonoplastia\midias\fundos (reaproveita se já está lá) */
+  const copiarFundo = (origem: string): string => {
+    if (!/\.(png|jpe?g|webp|bmp|gif)$/i.test(origem)) throw new Error('Escolha uma imagem (.jpg, .png, .webp…).')
+    mkdirSync(caminhos.fundos, { recursive: true })
+    const mesmo = join(caminhos.fundos, basename(origem))
+    if (existsSync(mesmo) && statSync(mesmo).size === statSync(origem).size) return mesmo
+    if (resolve(origem).toLowerCase().startsWith(resolve(caminhos.fundos).toLowerCase())) return origem
+    const destino = nomeLivre(caminhos.fundos, basename(origem))
+    copyFileSync(origem, destino)
+    return destino
+  }
+  ipcMain.handle(CANAIS.listarLiturgias, () => liturgias.listar())
+  ipcMain.handle(CANAIS.obterLiturgia, (_e, id: number) => liturgias.obter(id))
+  ipcMain.handle(CANAIS.copiarLiturgia, (_e, origemId: number | null, d: { nome?: string; data?: string | null; inicio?: string | null; modelo: boolean }) => {
+    const id = liturgias.copiar(origemId, d)
+    avisarLiturgias()
+    return id
+  })
+  ipcMain.handle(CANAIS.salvarLiturgia, (_e, id: number, a: AlteracaoLiturgia) => {
+    const l = liturgias.salvar(id, a)
+    avisarLiturgias()
+    return l
+  })
+  ipcMain.handle(CANAIS.excluirLiturgia, async (_e, id: number) => {
+    const l = liturgias.obter(id)
+    if (!l) return false
+    const r = await dialog.showMessageBox(janelaComando!, {
+      type: 'warning',
+      buttons: ['Excluir', 'Cancelar'],
+      defaultId: 1,
+      cancelId: 1,
+      title: l.modelo ? 'Excluir modelo' : 'Excluir liturgia',
+      message: `Excluir "${l.nome}"${l.data ? ` (${l.data.split('-').reverse().join('/')})` : ''}?`,
+      detail: 'As músicas, mídias e apresentações dela continuam na biblioteca. Não dá para desfazer.',
+    })
+    if (r.response !== 0) return false
+    if (motor.estado.liturgia?.liturgiaId === id) execLit.fechar()
+    liturgias.excluir(id)
+    avisarLiturgias()
+    return true
+  })
+  ipcMain.handle(CANAIS.executarItemLiturgia, (_e, liturgiaId: number, itemId: string, alvo: Alvo) => execLit.executar(liturgiaId, itemId, alvo))
+  ipcMain.handle(CANAIS.aberturaSecao, (_e, liturgiaId: number, secaoId: string, alvo: Alvo) => execLit.abertura(liturgiaId, secaoId, alvo))
+  ipcMain.handle(CANAIS.vizinhoLiturgia, (_e, liturgiaId: number, passo: 1 | -1, alvo: Alvo) => execLit.vizinho(liturgiaId, passo, alvo))
+  ipcMain.handle(CANAIS.passoLiturgia, (_e, passo: 1 | -1) => execLit.passo(passo))
+  ipcMain.handle(CANAIS.fecharLiturgia, () => execLit.fechar())
+  ipcMain.handle(CANAIS.escolherFundoSecao, async () => {
+    const r = await dialog.showOpenDialog(janelaComando!, {
+      title: 'Imagem de fundo da seção',
+      defaultPath: existsSync(caminhos.fundos) ? caminhos.fundos : caminhos.midias,
+      filters: [{ name: 'Imagens', extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'] }],
+      properties: ['openFile'],
+    })
+    const c = r.filePaths[0]
+    return r.canceled || !c ? null : copiarFundo(c)
+  })
+  ipcMain.handle(CANAIS.importarFundoSecao, (_e, caminho: string) => copiarFundo(caminho))
+
   // --- janelas
   janelaAudio = criarJanelaOculta('audio')
   janelaAudio.webContents.on('render-process-gone', (_e, d) => {
@@ -360,6 +530,21 @@ async function iniciar(): Promise<void> {
   janelaComando = criarJanelaComando(armazem, telas, recolherSaidas)
   telas.iniciar(cfg.geral.abrirSaidasAoIniciar)
   midias.retomar()
+  apresentacoes.retomar()
+
+  // controle remoto pelo celular: http://<IP do computador>:<porta> (página remoto.html)
+  const remoto = ligarControleRemoto({
+    armazem,
+    motor,
+    musicas,
+    midias,
+    biblia,
+    abrirMusica,
+    comando: () => janelaComando,
+    pastaPaginas: join(__dirname, '../renderer'),
+    pastasArquivos: () => [caminhos.miniaturas],
+    portaForcada: AUTOTESTE ? 0 : undefined,
+  })
 
   if (!AUTOTESTE) {
     // se outro programa já usa a combinação, ainda funciona com a tela de comando em foco
@@ -392,6 +577,11 @@ async function iniciar(): Promise<void> {
       liberar: liberarArquivo,
       recolher: recolherSaidas,
       abrirMusica,
+      apresentacoes,
+      abrirApresentacao,
+      remoto,
+      liturgias,
+      executorLiturgia: execLit,
       pasta: process.env.SONOPLASTIA_AUTOTESTE || join(caminhos.base, 'autoteste'),
     })
     encerrando = true

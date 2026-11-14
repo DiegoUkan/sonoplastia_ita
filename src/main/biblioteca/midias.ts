@@ -43,13 +43,14 @@ interface Linha {
   excluido_em: string | null
 }
 
-async function sha256(caminho: string): Promise<string> {
+export async function sha256(caminho: string): Promise<string> {
   const h = createHash('sha256')
   for await (const pedaco of createReadStream(caminho)) h.update(pedaco as Buffer)
   return h.digest('hex')
 }
 
-function nomeLivre(pasta: string, nome: string): string {
+/** Caminho livre na pasta para o nome (acrescenta " (2)", " (3)"… se já existir). */
+export function nomeLivre(pasta: string, nome: string): string {
   const ext = extname(nome)
   const base = basename(nome, ext).replace(/[<>:"/\\|?*]/g, '_').trim() || 'arquivo'
   let candidato = join(pasta, base + ext)

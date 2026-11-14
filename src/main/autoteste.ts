@@ -10,7 +10,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Alvo, Comando, Telemetria, VersaoMusica } from '../shared/estado'
+import type { BibliotecaApresentacoes } from './apresentacoes/biblioteca'
+import { caminhoDaUrlMidia } from '../shared/midia'
+import { dataDeHoje, type ItemLiturgia, novoId } from '../shared/liturgia'
 import type { Banco } from './banco'
+import type { ExecutorLiturgia } from './liturgia/executor'
+import type { RepositorioLiturgias } from './liturgia/repositorio'
 import type { RepositorioBiblia } from './biblia/repositorio'
 import type { BibliotecaMidias } from './biblioteca/midias'
 import type { ArmazemConfig } from './config'
@@ -18,6 +23,7 @@ import { log } from './log'
 import type { Motor } from './motor'
 import { importarLouvorJa } from './musicas/louvorJa'
 import type { RepositorioMusicas } from './musicas/repositorio'
+import type { ServidorRemoto } from './remoto/servidor'
 import type { GerenciadorTelas } from './telas/gerenciador'
 
 interface Contexto {
@@ -35,6 +41,11 @@ interface Contexto {
   /** o mesmo que o atalho de emergência faz */
   recolher: () => void
   abrirMusica: (id: number, versao: VersaoMusica, alvo: Alvo) => void
+  apresentacoes: BibliotecaApresentacoes
+  abrirApresentacao: (id: number, alvo: Alvo, indice?: number) => void
+  remoto: ServidorRemoto
+  liturgias: RepositorioLiturgias
+  executorLiturgia: ExecutorLiturgia
   pasta: string
 }
 
@@ -44,7 +55,13 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
   mkdirSync(ctx.pasta, { recursive: true })
   const relatorio: Record<string, unknown> = { inicio: new Date().toISOString(), capturas: [] as unknown[] }
   const capturas = relatorio.capturas as unknown[]
+  // SONOPLASTIA_AUTOTESTE_PULAR=apresentacao,video pula esses passos
+  const pular = (process.env.SONOPLASTIA_AUTOTESTE_PULAR ?? '').split(',').map((s) => s.trim())
   const passo = async <T>(nome: string, f: () => Promise<T> | T): Promise<T | undefined> => {
+    if (pular.includes(nome)) {
+      relatorio[`pulado:${nome}`] = true
+      return undefined
+    }
     try {
       return await f()
     } catch (e) {
@@ -176,6 +193,229 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     await noComando(`document.querySelector('[data-pagina="midias"]')?.click()`)
     await esperar(1200)
     await capturar('5-pagina-midias', 'comando')
+  })
+
+  await passo('apresentacao', async () => {
+    // arquivos reais deste PC: um .pptx com vídeo e áudio embutidos (ou um simples) e um PDF
+    const pptx = [
+      join(homedir(), 'Desktop', 'materiais sonoplastia', 'Aventureiros', 'IDEAIS EQUIPE aventureiros - PP (1).pptx'),
+      'C:\\Holyrics\\Holyrics\\files\\media\\file\\Meu_Lugar_No_Mundo.pptx',
+    ].find((c) => existsSync(c))
+    const pdf = ['C:\\Holyrics\\Holyrics\\files\\media\\file\\Mordomia.pdf'].find((c) => existsSync(c))
+    const arquivos = [pptx, pdf].filter((c): c is string => !!c)
+    if (!arquivos.length) {
+      relatorio.apresentacao = 'nenhum .pptx/.pdf de teste encontrado; pulado'
+      return
+    }
+    const t0 = Date.now()
+    const r = await ctx.apresentacoes.importar(arquivos)
+    const ids = [...r.importadas, ...r.repetidas]
+    const convertendo = () => ids.some((id) => ['na-fila', 'convertendo'].includes(ctx.apresentacoes.obter(id)?.situacao ?? ''))
+    for (let i = 0; i < 600 && convertendo(); i++) await esperar(500)
+    const lista = ids.map((id) => ctx.apresentacoes.obter(id)!)
+    relatorio.apresentacao = {
+      segundos: (Date.now() - t0) / 1000,
+      importacao: r,
+      apresentacoes: lista.map((a) => ({
+        id: a.id,
+        nome: a.nome,
+        tipo: a.tipo,
+        situacao: a.situacao,
+        detalhe: a.detalhe,
+        total: a.total,
+        tamanho: a.slides[0] ? `${a.slides[0].largura}x${a.slides[0].altura}` : null,
+        ocultos: a.slides.filter((s) => s.oculto).length,
+        comNotas: a.slides.filter((s) => s.notas).length,
+        midias: a.slides.flatMap((s, i) => s.midias.map((m) => ({ slide: i + 1, tipo: m.tipo, inicio: m.inicio, continua: m.continua, nome: m.nome, x: m.x, y: m.y, l: m.l, a: m.a }))),
+      })),
+    }
+    const p = lista.find((a) => a.tipo === 'pptx' && a.situacao === 'pronto') ?? lista.find((a) => a.situacao === 'pronto')
+    if (!p) return
+    await navegar('apresentacoes')
+    ctx.abrirApresentacao(p.id, 'todas', 0)
+    await esperar(1500)
+    await capturar('7-apresentacao')
+    fazer({ tipo: 'apresentacao:passo', passo: 1 })
+    await esperar(800)
+    relatorio.apresentacaoDepoisDoPasso = ctx.motor.estado.apresentacao?.indice
+    // slide com vídeo: vai até ele e dá o clique que começa o vídeo (se for "no clique")
+    const iv = p.slides.findIndex((s) => s.midias.some((m) => m.tipo === 'video'))
+    if (iv >= 0) {
+      fazer({ tipo: 'apresentacao:slide', indice: iv })
+      await esperar(800)
+      const antes = ctx.motor.estado.saidas.publico?.video.tocando
+      fazer({ tipo: 'apresentacao:passo', passo: 1 })
+      await esperar(3500)
+      relatorio.apresentacaoVideo = {
+        slide: iv + 1,
+        tocandoAntesDoClique: antes,
+        indiceDepoisDoClique: ctx.motor.estado.apresentacao?.indice,
+        telemetria: ctx.telemetrias.get('publico')?.video,
+      }
+      await capturar('8-apresentacao-video')
+    }
+    const d = lista.find((a) => a.tipo === 'pdf' && a.situacao === 'pronto')
+    if (d) {
+      ctx.abrirApresentacao(d.id, 'todas', 1)
+      await esperar(1500)
+      await capturar('9-pdf')
+    }
+    fazer({ tipo: 'apresentacao:fechar' })
+  })
+
+  await passo('remoto', async () => {
+    for (let i = 0; i < 40 && !ctx.remoto.status().porta; i++) await esperar(250)
+    const status = ctx.remoto.status()
+    if (!status.porta) throw new Error(`o servidor do controle remoto não ligou: ${status.erro}`)
+    const base = `http://127.0.0.1:${status.porta}`
+    const pin = ctx.armazem.obter().remoto.pin
+    // pela API: sem PIN é recusado, PIN errado também; com o PIN certo entra
+    const post = (rota: string, corpo: unknown, cookie = '') =>
+      fetch(`${base}${rota}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(corpo) })
+    const semPin = await post('/api/chamar', { metodo: 'listarMusicas', args: [''] })
+    const errado = await post('/api/entrar', { pin: 'x' })
+    const certo = await post('/api/entrar', { pin })
+    const cookie = certo.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const chamar = (metodo: string, ...args: unknown[]) => post('/api/chamar', { metodo, args }, cookie).then((r) => r.json())
+    relatorio.remoto = {
+      status,
+      pinGerado: /^\d{4}$/.test(pin),
+      semPin: semPin.status,
+      pinErrado: errado.status,
+      pinCerto: certo.status,
+      metodoProibido: await chamar('apagarMidia', 1),
+      urlProibida: await chamar('comando', { tipo: 'mostrar', alvo: 'todas', conteudo: { tipo: 'imagem', url: 'file:///C:/Windows/win.ini', nome: 'x' } }),
+      musicas: ((await chamar('listarMusicas', '')) as { valor?: unknown[] }).valor?.length,
+      pagina: (await fetch(base)).status,
+      foraDaPasta: (await fetch(`${base}/assets/..%2F..%2Fmain%2Findex.js`)).status,
+    }
+
+    // passador do celular → tela de comando (página Músicas) → próximo trecho
+    const lista = ctx.musicas.listar('')
+    if (lista[0]) {
+      ctx.abrirMusica(lista[0].id, 'manual', 'todas')
+      await navegar('musicas')
+      const antes = ctx.motor.estado.musica?.indice
+      await chamar('passador', 'proximo')
+      await esperar(600)
+      relatorio.remotoPassadorPc = { antes, depois: ctx.motor.estado.musica?.indice }
+      fazer({ tipo: 'musica:fechar' })
+    }
+
+    // a página num "celular" (janela oculta de 390×844)
+    const { BrowserWindow } = await import('electron')
+    const cel = new BrowserWindow({ show: false, width: 390, height: 844, webPreferences: { sandbox: true, contextIsolation: true } })
+    const js = (codigo: string) => cel.webContents.executeJavaScript(codigo)
+    const clicar = (texto: string, exato = true) =>
+      js(`(() => {
+        const t = ${JSON.stringify(texto)}
+        const b = [...document.querySelectorAll('button')].find((b) => (${exato} ? b.textContent.trim() === t : b.textContent.includes(t)) && b.offsetParent !== null)
+        if (!b) return false
+        b.click()
+        return true
+      })()`)
+    const digitar = (seletor: string, texto: string) =>
+      js(`(() => { const i = document.querySelector(${JSON.stringify(seletor)}); if (!i) return false; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${JSON.stringify(texto)}); i.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
+    const fotografar = async (nome: string) => {
+      await cel.webContents.capturePage()
+      await esperar(400)
+      const img = await cel.webContents.capturePage()
+      writeFileSync(join(ctx.pasta, `${nome}-celular.png`), img.toPNG())
+      capturas.push({ nome, id: 'celular', vazia: img.isEmpty(), tamanho: img.getSize() })
+    }
+    try {
+      await cel.loadURL(base)
+      await esperar(1500)
+      const etapas: Record<string, unknown> = {}
+      etapas.telaPin = await digitar('input[aria-label="PIN"]', pin)
+      await js(`document.querySelector('input[aria-label="PIN"]')?.form?.requestSubmit()`)
+      await esperar(2500)
+      await fotografar('r1-remoto')
+      if (lista[0]) {
+        etapas.abriuLista = await clicar(lista[0].titulo, false)
+        await esperar(300)
+        etapas.manual = await clicar('Só letra')
+        await esperar(1500)
+        etapas.musica = ctx.motor.estado.musica ? { titulo: ctx.motor.estado.musica.titulo, indice: ctx.motor.estado.musica.indice } : null
+        await clicar('Próximo')
+        await esperar(600)
+        await clicar('Próximo')
+        await esperar(600)
+        etapas.indiceDepoisDeDoisProximos = ctx.motor.estado.musica?.indice
+        await fotografar('r2-remoto-musica')
+      }
+      await clicar('Preto')
+      await esperar(500)
+      etapas.telasDepoisDoPreto = Object.values(ctx.motor.estado.saidas).map((s) => s.tela)
+      await fotografar('r3-remoto-preto')
+      await clicar('Preto')
+      await esperar(300)
+      fazer({ tipo: 'musica:fechar' })
+      if (ctx.biblia.versoes().length) {
+        await clicar('Bíblia')
+        await esperar(800)
+        etapas.digitouBiblia = await digitar('input[placeholder^="jo 3 16"]', 'jo 3 16')
+        await clicar('Mostrar')
+        await esperar(1500)
+        etapas.versiculo = ctx.motor.estado.saidas.publico?.conteudo
+        await clicar('Próximo')
+        await esperar(1000)
+        etapas.versiculoDepoisDoProximo = ctx.motor.estado.saidas.publico?.conteudo
+        await fotografar('r4-remoto-biblia')
+      }
+      await clicar('Mídias')
+      await esperar(1500)
+      await fotografar('r5-remoto-midias')
+      relatorio.remotoPagina = { ...etapas, conectados: ctx.remoto.status().conectados }
+    } finally {
+      cel.destroy()
+    }
+  })
+
+  await passo('liturgia', async () => {
+    // culto de hoje a partir do modelo; 1ª seção com fundo (a miniatura de um vídeo), um texto,
+    // um versículo (se a ARA foi importada) e o vídeo de teste com "passar sozinho"
+    const modelo = ctx.liturgias.listar().find((l) => l.modelo)
+    if (!modelo) {
+      relatorio.liturgia = 'sem modelo; pulado'
+      return
+    }
+    const id = ctx.liturgias.copiar(modelo.id, { modelo: false, data: dataDeHoje() })
+    const l = ctx.liturgias.obter(id)!
+    const video = ctx.midias.listar({ tipo: 'video' })[0]
+    const comum = { titulo: '', alvo: '', ativo: true, duracaoMin: 5, observacao: '', avancar: false }
+    const texto: ItemLiturgia = { ...comum, id: novoId(), tipo: 'texto', texto: 'Bem-vindos ao culto' }
+    const verso: ItemLiturgia = { ...comum, id: novoId(), tipo: 'biblia', referencia: 'jo 3 16', sigla: '' }
+    const itensVideo: ItemLiturgia[] = video ? [{ ...comum, id: novoId(), tipo: 'midia', midiaId: video.id, midiaTipo: 'video', titulo: video.nome, avancar: true }] : []
+    const [s1, s2, ...resto] = l.secoes
+    ctx.liturgias.salvar(id, {
+      ...l,
+      secoes: [
+        { ...s1!, fundo: video?.miniaturaUrl ? caminhoDaUrlMidia(video.miniaturaUrl) : null, itens: [texto, verso] },
+        { ...s2!, itens: itensVideo },
+        ...resto,
+      ],
+    })
+    await navegar('liturgia')
+    ctx.executorLiturgia.executar(id, texto.id, 'todas')
+    await esperar(1200)
+    await capturar('L1-liturgia-texto')
+    const r: Record<string, unknown> = { estadoTexto: ctx.motor.estado.liturgia, fundoPublico: ctx.motor.estado.saidas.publico?.fundo }
+    try {
+      ctx.executorLiturgia.vizinho(id, 1)
+      ctx.executorLiturgia.passo(1)
+      await esperar(1000)
+      r.versiculo = ctx.motor.estado.saidas.publico?.conteudo
+      await capturar('L2-liturgia-versiculo')
+    } catch (e) {
+      r.versiculo = String(e)
+    }
+    // painel "Adicionar" aberto na 1ª seção
+    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Adicionar')?.click()`)
+    await esperar(900)
+    await capturar('L3-liturgia-adicionar', 'comando')
+    relatorio.liturgia = r
+    ctx.executorLiturgia.fechar()
   })
 
   await passo('painel-recolhido', async () => {

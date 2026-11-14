@@ -14,9 +14,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ATALHO_EMERGENCIA } from '../../shared/atalhos'
 import type { Config } from '../../shared/config'
 import type { Progresso } from '../../shared/dados'
-import { type EstadoMotor, type EstadoTelas, type ModoTela, TODAS } from '../../shared/estado'
+import { AUDIO, type EstadoMotor, type EstadoTelas, type ModoTela, TODAS } from '../../shared/estado'
 import { api, useAgora, useConfig, useEstado, useTelas, useTelemetrias } from '../compartilhado/ganchos'
+import { IndicadorRemoto, usePassadorRemoto } from './Remoto'
 import { PainelSaidas } from './PainelSaidas'
+import { PaginaApresentacoes } from './PaginaApresentacoes'
+import { PaginaLiturgia } from './PaginaLiturgia'
 import { PaginaBiblia } from './PaginaBiblia'
 import { PaginaConfiguracoes } from './PaginaConfiguracoes'
 import { PaginaMidias } from './PaginaMidias'
@@ -26,11 +29,13 @@ import { PaginaTeste } from './PaginaTeste'
 import { fontesDoPlayer } from './Player'
 import { Segmentado } from './ui'
 
-type Pagina = 'midias' | 'musicas' | 'biblia' | 'teste' | 'telas' | 'configuracoes'
+type Pagina = 'liturgia' | 'midias' | 'musicas' | 'biblia' | 'apresentacoes' | 'teste' | 'telas' | 'configuracoes'
 
 const CONTEUDO: Array<{ id: Pagina; rotulo: string; icone: LucideIcon }> = [
+  { id: 'liturgia', rotulo: 'Liturgia', icone: ListOrdered },
   { id: 'musicas', rotulo: 'Músicas', icone: Music },
   { id: 'biblia', rotulo: 'Bíblia', icone: BookOpen },
+  { id: 'apresentacoes', rotulo: 'Apresentações', icone: Presentation },
   { id: 'midias', rotulo: 'Mídias', icone: FolderOpen },
 ]
 const SISTEMA: Array<{ id: Pagina; rotulo: string; icone: LucideIcon }> = [
@@ -39,14 +44,14 @@ const SISTEMA: Array<{ id: Pagina; rotulo: string; icone: LucideIcon }> = [
   { id: 'configuracoes', rotulo: 'Configurações', icone: Settings },
 ]
 const FUTURAS: Array<{ rotulo: string; icone: LucideIcon; fase: number }> = [
-  { rotulo: 'Liturgia', icone: ListOrdered, fase: 5 },
-  { rotulo: 'Apresentações', icone: Presentation, fase: 4 },
   { rotulo: 'Ferramentas', icone: Wrench, fase: 6 },
 ]
 const TITULOS: Record<Pagina, string> = {
   midias: 'Mídias',
   musicas: 'Músicas',
   biblia: 'Bíblia',
+  apresentacoes: 'Apresentações',
+  liturgia: 'Liturgia',
   teste: 'Teste dos projetores',
   telas: 'Telas',
   configuracoes: 'Configurações',
@@ -57,7 +62,11 @@ export type TeclaPagina = (e: KeyboardEvent) => boolean
 
 const digitando = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"]')
 
-/** Atalhos: a página aberta primeiro; depois B = preto, Esc = limpar, L = logo (em todas). */
+/**
+ * Atalhos: a página aberta primeiro; depois B ou "." = preto, Esc = limpar, L = logo (em todas). Se a
+ * página não usa o passador (PageDown/PageUp) e há uma apresentação no ar, ele anda os slides dela:
+ * o pregador continua passando mesmo com o operador em outra página.
+ */
 function useAtalhos(estado: EstadoMotor | null, config: Config | null, teclasPagina: React.RefObject<TeclaPagina | null>) {
   useEffect(() => {
     if (!estado || !config) return
@@ -73,8 +82,14 @@ function useAtalhos(estado: EstadoMotor | null, config: Config | null, teclasPag
         return
       }
       if (digitando(e)) return
+      if (estado.apresentacao && (e.key === 'PageDown' || e.key === 'PageUp')) {
+        api.comando({ tipo: 'apresentacao:passo', passo: e.key === 'PageDown' ? 1 : -1 })
+        e.preventDefault()
+        return
+      }
       const k = e.key.toLowerCase()
-      if (k === 'b') alternar('preto')
+      // "." é a tecla de tela preta de vários passadores (e do PowerPoint)
+      if (k === 'b' || k === '.') alternar('preto')
       else if (k === 'escape') alternar('limpar')
       else if (k === 'l') alternar('logo')
       else return
@@ -99,6 +114,7 @@ export function App() {
     teclasPagina.current = f
   }, [])
   useAtalhos(estado, config, teclasPagina)
+  usePassadorRemoto()
 
   const tema = config?.geral.tema ?? 'claro'
   useEffect(() => {
@@ -106,7 +122,7 @@ export function App() {
   }, [tema])
 
   useEffect(() => {
-    if (config && pagina === null) setPagina(config.saidas.some((s) => s.ativa && !s.monitor) ? 'telas' : 'musicas')
+    if (config && pagina === null) setPagina(config.saidas.some((s) => s.ativa && !s.monitor) ? 'telas' : 'liturgia')
   }, [config, pagina])
 
   useEffect(
@@ -134,7 +150,7 @@ export function App() {
 
   const fonte = fontes.find((f) => f.id === fonteId) ?? fontes[0] ?? null
   const recolhido = config.interface.painelRecolhido
-  const comAlvo = pagina === 'midias' || pagina === 'musicas' || pagina === 'biblia' || pagina === 'teste'
+  const comAlvo = pagina === 'liturgia' || pagina === 'midias' || pagina === 'musicas' || pagina === 'biblia' || pagina === 'apresentacoes' || pagina === 'teste'
 
   return (
     <div
@@ -176,8 +192,10 @@ export function App() {
         </header>
         <div className="min-h-0 flex-1">
           {pagina === 'midias' && <PaginaMidias alvo={alvo} />}
-          {pagina === 'musicas' && <PaginaMusicas alvo={alvo} estado={estado} registrarTeclas={registrarTeclas} />}
+          {pagina === 'musicas' && <PaginaMusicas alvo={alvo} estado={estado} telemetriaAudio={telemetrias[AUDIO]?.video ?? null} registrarTeclas={registrarTeclas} />}
           {pagina === 'biblia' && <PaginaBiblia alvo={alvo} config={config} registrarTeclas={registrarTeclas} />}
+          {pagina === 'apresentacoes' && <PaginaApresentacoes alvo={alvo} estado={estado} config={config} registrarTeclas={registrarTeclas} />}
+          {pagina === 'liturgia' && <PaginaLiturgia alvo={alvo} estado={estado} config={config} registrarTeclas={registrarTeclas} />}
           {pagina === 'teste' && (
             <div className="h-full overflow-y-auto">
               <PaginaTeste config={config} alvo={alvo} telemetrias={telemetrias} />
@@ -254,7 +272,12 @@ function ItemNavegacao({
   )
 }
 
-const NOMES_TAREFA: Record<Progresso['tarefa'], string> = { louvorja: 'Importando músicas', biblia: 'Importando Bíblia', midias: 'Importando mídias' }
+const NOMES_TAREFA: Record<Progresso['tarefa'], string> = {
+  louvorja: 'Importando músicas',
+  biblia: 'Importando Bíblia',
+  midias: 'Importando mídias',
+  apresentacoes: 'Convertendo apresentação',
+}
 
 function BarraStatus({ config, telas, progresso }: { config: Config; telas: EstadoTelas; progresso: Progresso | null }) {
   const agora = useAgora()
@@ -280,6 +303,7 @@ function BarraStatus({ config, telas, progresso }: { config: Config; telas: Esta
           {progresso.feito}/{progresso.total}
         </span>
       )}
+      <IndicadorRemoto />
       <span className="ml-auto">
         Emergência: <b className="text-texto">{ATALHO_EMERGENCIA.texto}</b> fecha as saídas
       </span>

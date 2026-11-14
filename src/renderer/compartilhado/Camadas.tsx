@@ -57,8 +57,10 @@ function transicaoSobCobertura(tela: ModoTela, anterior: ModoTela, coberturas: M
 export function Camadas(p: PropsCamadas) {
   const { saida, config, transicaoMs: ms } = p
   const anterior = useTelaAnterior(saida.tela)
-  const ehTexto = saida.conteudo.tipo === 'letra' || saida.conteudo.tipo === 'versiculo'
-  const semFundo = saida.conteudo.tipo === 'letra' && !config.musicaComFundo
+  const tipo = saida.conteudo.tipo
+  const ehTexto = tipo === 'letra' || tipo === 'versiculo' || tipo === 'texto'
+  // o slide já traz o fundo dele; a imagem da música por trás só atrapalharia
+  const semFundo = (tipo === 'letra' && !config.musicaComFundo) || ((tipo === 'versiculo' || tipo === 'texto') && !config.textoComFundo) || tipo === 'slide'
   return (
     <div data-tela className="relative h-full w-full overflow-hidden" style={{ background: config.corFundo, containerType: 'size' }}>
       {!semFundo && <CamadaFundo fundo={saida.fundo} ms={ms} escurecer={ehTexto} />}
@@ -262,6 +264,8 @@ function CamadaConteudo(p: PropsConteudo) {
           <Referencia texto={c.segundo ? `${c.referencia} · ${c.segundo.referencia}` : c.referencia} sombra={cfg.textoSombra} />
         </div>
       )
+    case 'slide':
+      return <ConteudoSlide {...p} c={c} />
     case 'imagem':
       return <img src={c.url} alt="" draggable={false} className="h-full w-full" style={{ objectFit: AJUSTE_CSS[cfg.ajuste] }} />
     case 'video':
@@ -277,6 +281,127 @@ function CamadaConteudo(p: PropsConteudo) {
         />
       )
   }
+}
+
+type ConteudoDeSlide = Extract<Conteudo, { tipo: 'slide' }>
+
+/**
+ * Slide de apresentação. Sem "próximo slide" nem anotações: o slide ocupa a saída inteira (com faixas
+ * pretas se a proporção for outra). Com eles (Palco): slide atual grande, próximo ao lado, número do
+ * slide e as anotações embaixo.
+ */
+function ConteudoSlide(p: PropsConteudo & { c: ConteudoDeSlide }) {
+  const { c, config: cfg } = p
+  // deixa a próxima imagem já decodificada, para a troca não piscar
+  useEffect(() => {
+    if (!c.proximoUrl) return
+    const img = new Image()
+    img.decoding = 'async'
+    img.src = c.proximoUrl
+  }, [c.proximoUrl])
+
+  const tocaVideo = !!c.video && cfg.mostrarVideo && !p.miniatura
+  const atual = (
+    <CaixaSlide url={c.url} proporcao={c.proporcao}>
+      {tocaVideo && c.video && (
+        <VideoDoSlide video={c.video} controle={p.controle} ativo={p.ativo} aoTelemetria={p.aoTelemetriaVideo} saidaAudio={p.saidaAudio} />
+      )}
+      {c.video && !tocaVideo && <SeloVideoSlide telemetria={p.telemetriaVideo} />}
+    </CaixaSlide>
+  )
+  const notas = cfg.slideMostrarNotas ? c.notas.trim() : ''
+  if (!cfg.slideMostrarProximo && !notas) return atual
+
+  return (
+    <div className="flex h-full w-full flex-col bg-black" style={{ padding: '2.5cqh', gap: '2.5cqh' }}>
+      <div className="flex min-h-0 flex-1" style={{ gap: '2.5cqh' }}>
+        <div className="min-w-0" style={{ flex: cfg.slideMostrarProximo ? '0 0 64%' : '1 1 auto' }}>
+          {atual}
+        </div>
+        {cfg.slideMostrarProximo && (
+          <div className="flex min-w-0 flex-1 flex-col" style={{ gap: '1.5cqh' }}>
+            <div style={{ fontSize: '3.4cqh', fontWeight: 700, letterSpacing: '.08em', color: 'rgba(255,255,255,.55)' }}>PRÓXIMO</div>
+            <div className="min-h-0" style={{ height: '42%' }}>
+              {c.proximoUrl ? (
+                <CaixaSlide url={c.proximoUrl} proporcao={c.proporcao} />
+              ) : (
+                <div className="flex h-full items-center justify-center rounded" style={{ border: '0.3cqh dashed rgba(255,255,255,.3)', color: 'rgba(255,255,255,.5)', fontSize: '3.6cqh' }}>
+                  Fim da apresentação
+                </div>
+              )}
+            </div>
+            <div className="mt-auto" style={{ color: '#fff', fontSize: '10cqh', fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+              {c.indice + 1}
+              <span style={{ fontSize: '0.5em', color: 'rgba(255,255,255,.55)' }}> / {c.total}</span>
+            </div>
+          </div>
+        )}
+      </div>
+      {notas && (
+        <div className="shrink-0" style={{ height: '28%', borderTop: '0.3cqh solid rgba(255,255,255,.2)', paddingTop: '1.5cqh' }}>
+          <TextoAjustado chave={notas} maxPct={5.5} minPct={2.2} estilo={{ color: '#fff', textAlign: 'left', lineHeight: 1.3, whiteSpace: 'pre-line' }}>
+            {notas}
+          </TextoAjustado>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Caixa na proporção do slide, centralizada no espaço que tiver. */
+function CaixaSlide({ url, proporcao, children }: { url: string; proporcao: number; children?: ReactNode }) {
+  const r = proporcao > 0 ? proporcao : 16 / 9
+  return (
+    <div className="flex h-full w-full items-center justify-center" style={{ containerType: 'size' }}>
+      <div className="relative overflow-hidden" style={{ width: `min(100cqw, calc(100cqh * ${r}))`, height: `min(100cqh, calc(100cqw / ${r}))` }}>
+        <img src={url} alt="" draggable={false} className="absolute inset-0 h-full w-full" />
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Vídeo no lugar dele no slide. Fica invisível até começar a tocar (o slide já mostra o quadro de
+ * capa, como no PowerPoint) e, no fim, fica no último quadro.
+ */
+function VideoDoSlide(p: {
+  video: NonNullable<ConteudoDeSlide['video']>
+  controle: ControleMidia
+  ativo: boolean
+  aoTelemetria?: (v: TelemetriaVideo | null) => void
+  saidaAudio?: string
+}) {
+  const ref = useRef<HTMLVideoElement>(null)
+  const [comecou, setComecou] = useState(false)
+  useControleMidia(ref, p.controle, p.ativo, p.saidaAudio)
+  useTelemetriaMidia(ref, p.ativo, p.aoTelemetria)
+  const v = p.video
+  return (
+    <video
+      ref={ref}
+      src={v.url}
+      autoPlay={p.controle.tocando}
+      playsInline
+      onPlaying={() => setComecou(true)}
+      className="absolute"
+      style={{ left: `${v.x * 100}%`, top: `${v.y * 100}%`, width: `${v.l * 100}%`, height: `${v.a * 100}%`, objectFit: 'fill', opacity: comecou ? 1 : 0 }}
+    />
+  )
+}
+
+/** Onde o vídeo do slide não é decodificado (Palco, miniatura): selo com o tempo que falta. */
+function SeloVideoSlide({ telemetria }: { telemetria?: TelemetriaVideo | null }) {
+  const falta = telemetria ? telemetria.duracao - telemetria.posicao : null
+  return (
+    <div
+      className="absolute flex items-center text-white"
+      style={{ right: '2cqh', bottom: '2cqh', gap: '1.2cqh', padding: '0.8cqh 1.8cqh', borderRadius: '1cqh', background: 'rgba(0,0,0,.72)', fontSize: '5cqh', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
+    >
+      <Film style={{ width: '5cqh', height: '5cqh' }} />
+      {telemetria && falta !== null ? `${telemetria.tocando ? '▶' : '❚❚'} −${formatarTempo(falta)}` : 'vídeo'}
+    </div>
+  )
 }
 
 function Referencia({ texto, sombra }: { texto: string; sombra: boolean }) {

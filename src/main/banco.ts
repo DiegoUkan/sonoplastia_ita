@@ -71,6 +71,51 @@ const MIGRACOES: string[] = [
     tokenize = 'unicode61 remove_diacritics 2'
   );
   `,
+  // 2: apresentações (PPTX e PDF), cada slide vira uma imagem
+  `
+  create table apresentacoes (
+    id integer primary key,
+    tipo text not null check (tipo in ('pptx', 'pdf')),
+    nome text not null,
+    arquivo text not null,
+    original text,
+    sha256 text,
+    bytes integer not null default 0,
+    situacao text not null default 'na-fila',
+    detalhe text,
+    pasta_slides text,
+    criado_em text not null,
+    convertido_em text
+  );
+  create unique index apresentacoes_sha on apresentacoes (sha256);
+
+  create table apresentacao_slides (
+    apresentacao_id integer not null references apresentacoes (id) on delete cascade,
+    ordem integer not null,
+    imagem text not null,
+    miniatura text,
+    largura integer not null,
+    altura integer not null,
+    oculto integer not null default 0,
+    notas text not null default '',
+    midias text not null default '[]',
+    primary key (apresentacao_id, ordem)
+  );
+  `,
+  // 3: liturgias (roteiro de cada culto e modelos); seções e itens num JSON validado
+  `
+  create table liturgias (
+    id integer primary key,
+    nome text not null,
+    data text,
+    inicio text,
+    modelo integer not null default 0,
+    documento text not null default '{"secoes":[]}',
+    criado_em text not null,
+    atualizado_em text not null
+  );
+  create index liturgias_data on liturgias (modelo, data);
+  `,
 ]
 
 export function abrirBanco(arquivo: string): Banco {

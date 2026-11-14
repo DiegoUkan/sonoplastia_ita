@@ -1,7 +1,7 @@
 import '../estilos.css'
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { TelemetriaVideo } from '../../shared/estado'
+import { type TelemetriaVideo, videoDoConteudo } from '../../shared/estado'
 import { Camadas } from '../compartilhado/Camadas'
 import { api, useConfig, useEstado, useTelemetrias } from '../compartilhado/ganchos'
 
@@ -35,7 +35,8 @@ function Saida() {
 
   const s = estado?.saidas[saidaId]
   const c = config?.saidas.find((x) => x.id === saidaId)
-  const tocaVideoAqui = s?.conteudo.tipo === 'video' && !!c?.mostrarVideo
+  const videoAqui = s ? videoDoConteudo(s.conteudo) : null
+  const tocaVideoAqui = !!videoAqui && !!c?.mostrarVideo
   const chave = s?.chave
   useEffect(() => {
     if (s && !tocaVideoAqui) enviar(null)
@@ -46,9 +47,12 @@ function Saida() {
 
   // esta saída não mostra vídeo: usa o tempo da saída que está tocando o mesmo vídeo
   let telemetriaOutra = null
-  if (s.conteudo.tipo === 'video' && !c.mostrarVideo) {
-    const url = s.conteudo.url
-    const outra = config.saidas.find((x) => x.id !== saidaId && x.mostrarVideo && estado.saidas[x.id]?.conteudo.tipo === 'video' && (estado.saidas[x.id]!.conteudo as { url: string }).url === url)
+  if (videoAqui && !c.mostrarVideo) {
+    const url = videoAqui.url
+    const outra = config.saidas.find((x) => {
+      const e = estado.saidas[x.id]
+      return x.id !== saidaId && x.mostrarVideo && !!e && videoDoConteudo(e.conteudo)?.url === url
+    })
     telemetriaOutra = outra ? (telemetrias[outra.id]?.video ?? null) : null
   }
 

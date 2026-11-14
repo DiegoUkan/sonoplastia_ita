@@ -1,4 +1,5 @@
 /** Ações usadas em vários lugares da tela de comando. */
+import { ehApresentacao } from '../../shared/apresentacao'
 import type { Midia } from '../../shared/dados'
 import type { Alvo } from '../../shared/estado'
 import { api } from '../compartilhado/ganchos'
@@ -22,7 +23,27 @@ export async function soltarEm(e: React.DragEvent, alvo: Alvo): Promise<string |
     await api.abrirMusica(item.id, item.versao, alvo)
     return null
   }
-  const arquivos = arquivosDoArraste(e)
+  if (item?.tipo === 'apresentacao') {
+    const noAr = (await api.obterEstado()).apresentacao
+    if (noAr?.apresentacaoId === item.id) await api.comando({ tipo: 'apresentacao:slide', indice: item.indice, alvo })
+    else await api.abrirApresentacao(item.id, alvo, item.indice)
+    return null
+  }
+  if (item?.tipo === 'liturgia') {
+    await api.executarItemLiturgia(item.liturgiaId, item.itemId, alvo)
+    return null
+  }
+  const todos = arquivosDoArraste(e)
+  // .pptx e .pdf viram apresentação: convertem em segundo plano e aparecem em Apresentações
+  const apresentacoes = todos.filter(ehApresentacao)
+  const arquivos = todos.filter((c) => !ehApresentacao(c))
+  if (apresentacoes.length) {
+    const r = await api.importarApresentacoes(apresentacoes)
+    if (!arquivos.length) {
+      if (r.ignoradas[0]) return `Não importado: ${r.ignoradas[0]}`
+      return 'Apresentação importada: ela aparece em Apresentações quando terminar de converter.'
+    }
+  }
   if (!arquivos.length) return null
   const r = await api.importarMidias(arquivos)
   const id = r.importadas[0] ?? r.repetidas[0]

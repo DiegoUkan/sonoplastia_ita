@@ -1,4 +1,7 @@
+import type { Apresentacao, ResumoApresentacao } from './apresentacao'
 import type { Config } from './config'
+import type { AlteracaoLiturgia, Liturgia, ResumoLiturgia } from './liturgia'
+import type { DirecaoPassador, StatusRemoto } from './remoto'
 import type {
   ArquivoBibliaEncontrado,
   FiltroMidias,
@@ -57,6 +60,34 @@ export const CANAIS = {
   capitulo: 'biblia:capitulo',
   totalCapitulos: 'biblia:total-capitulos',
   buscarBiblia: 'biblia:buscar',
+  // apresentações
+  listarApresentacoes: 'apresentacoes:listar',
+  obterApresentacao: 'apresentacoes:obter',
+  importarApresentacoes: 'apresentacoes:importar',
+  escolherEImportarApresentacoes: 'apresentacoes:escolher-e-importar',
+  renomearApresentacao: 'apresentacoes:renomear',
+  excluirApresentacao: 'apresentacoes:excluir',
+  reconverterApresentacao: 'apresentacoes:reconverter',
+  abrirApresentacao: 'apresentacoes:abrir',
+  apresentacoesMudaram: 'apresentacoes:mudaram',
+  // liturgia
+  listarLiturgias: 'liturgia:listar',
+  obterLiturgia: 'liturgia:obter',
+  copiarLiturgia: 'liturgia:copiar',
+  salvarLiturgia: 'liturgia:salvar',
+  excluirLiturgia: 'liturgia:excluir',
+  executarItemLiturgia: 'liturgia:executar',
+  aberturaSecao: 'liturgia:abertura',
+  vizinhoLiturgia: 'liturgia:vizinho',
+  passoLiturgia: 'liturgia:passo',
+  fecharLiturgia: 'liturgia:fechar',
+  escolherFundoSecao: 'liturgia:escolher-fundo',
+  importarFundoSecao: 'liturgia:importar-fundo',
+  liturgiasMudaram: 'liturgia:mudaram',
+  // controle remoto (celular)
+  statusRemoto: 'remoto:status',
+  remotoMudou: 'remoto:mudou',
+  passador: 'remoto:passador',
   // janelas internas
   sondaPedido: 'sonda:pedido',
   sondaResultado: 'sonda:resultado',
@@ -115,6 +146,43 @@ export interface ApiSonoplastia {
   capitulo(sigla: string, livro: number, capitulo: number): Promise<VersiculoTexto[]>
   totalCapitulos(sigla: string, livro: number): Promise<number>
   buscarBiblia(sigla: string, termo: string): Promise<ResultadoBuscaBiblia[]>
+
+  listarApresentacoes(busca: string): Promise<ResumoApresentacao[]>
+  obterApresentacao(id: number): Promise<Apresentacao | null>
+  importarApresentacoes(caminhos: string[]): Promise<ResultadoImportacao>
+  escolherEImportarApresentacoes(): Promise<ResultadoImportacao>
+  renomearApresentacao(id: number, nome: string): Promise<void>
+  /** pergunta antes; devolve true se apagou */
+  excluirApresentacao(id: number): Promise<boolean>
+  reconverterApresentacao(id: number): Promise<void>
+  abrirApresentacao(id: number, alvo: Alvo, indice?: number): Promise<void>
+  aoMudarApresentacoes(cb: () => void): () => void
+
+  listarLiturgias(): Promise<ResumoLiturgia[]>
+  obterLiturgia(id: number): Promise<Liturgia | null>
+  /** novo culto ou modelo copiando as seções de `origemId` (null = seções padrão vazias); devolve o id */
+  copiarLiturgia(origemId: number | null, dados: { nome?: string; data?: string | null; inicio?: string | null; modelo: boolean }): Promise<number>
+  salvarLiturgia(id: number, a: AlteracaoLiturgia): Promise<Liturgia>
+  /** pergunta antes; devolve true se excluiu */
+  excluirLiturgia(id: number): Promise<boolean>
+  executarItemLiturgia(liturgiaId: number, itemId: string, alvo: Alvo): Promise<void>
+  aberturaSecao(liturgiaId: number, secaoId: string, alvo: Alvo): Promise<void>
+  /** põe no ar o próximo (1) ou o anterior (-1) item ativo; devolve o id dele ou null */
+  vizinhoLiturgia(liturgiaId: number, passo: 1 | -1, alvo: Alvo): Promise<string | null>
+  /** passador dentro do item no ar; false se o item não tem "dentro" */
+  passoLiturgia(passo: 1 | -1): Promise<boolean>
+  fecharLiturgia(): Promise<void>
+  /** escolhe uma imagem e copia para a pasta de fundos; devolve o caminho */
+  escolherFundoSecao(): Promise<string | null>
+  /** copia uma imagem (arrastada do Explorer) para a pasta de fundos; devolve o caminho */
+  importarFundoSecao(caminho: string): Promise<string>
+  aoMudarLiturgias(cb: () => void): () => void
+
+  /** controle remoto: endereço, PIN e quantos celulares estão conectados */
+  statusRemoto(): Promise<StatusRemoto>
+  aoMudarRemoto(cb: (s: StatusRemoto) => void): () => void
+  /** o passador do celular: a tela de comando trata como PageDown/PageUp na página aberta */
+  aoPassador(cb: (d: DirecaoPassador) => void): () => void
 
   /** só a janela-sonda usa */
   aoPedidoSonda(cb: (p: PedidoSonda) => void): () => void

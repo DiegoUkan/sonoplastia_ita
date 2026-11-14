@@ -59,6 +59,10 @@ export const EsquemaSaida = z.object({
     description: 'Desligado, mostra só o nome do vídeo e o tempo que falta, sem pesar o computador. Bom para o Palco.',
   }),
   musicaComFundo: z.boolean().default(true).meta({ title: 'Músicas: mostrar a imagem de fundo' }),
+  textoComFundo: z.boolean().default(true).meta({
+    title: 'Bíblia e textos: mostrar o fundo padrão',
+    description: 'A imagem escolhida em Configurações → Fundos, atrás dos versículos e textos.',
+  }),
   musicaMostrarProximo: z.boolean().default(false).meta({
     title: 'Músicas: mostrar o próximo trecho',
     description: 'Em letra menor, embaixo. Ajuda quem está cantando no palco.',
@@ -71,11 +75,19 @@ export const EsquemaSaida = z.object({
     'x-passo': 0.5,
   }),
   textoSombra: z.boolean().default(true).meta({ title: 'Sombra no texto', description: 'Ajuda a ler sobre imagens claras.' }),
+  slideMostrarProximo: z.boolean().default(false).meta({
+    title: 'Apresentações: mostrar o próximo slide',
+    description: 'O slide atual fica menor, com o próximo e o número do slide ao lado. Bom para o Palco.',
+  }),
+  slideMostrarNotas: z.boolean().default(false).meta({
+    title: 'Apresentações: mostrar as anotações do orador',
+    description: 'O texto das anotações do PowerPoint, embaixo do slide.',
+  }),
 })
 export type ConfigSaida = z.infer<typeof EsquemaSaida>
 
-/** O Palco vem diferente do Público: sem vídeo, sem fundo nas músicas e com o próximo trecho. */
-export const PADROES_PALCO = { mostrarVideo: false, musicaComFundo: false, musicaMostrarProximo: true } as const
+/** O Palco vem diferente do Público: sem vídeo, sem fundo nas músicas, com o próximo trecho e o próximo slide. */
+export const PADROES_PALCO = { mostrarVideo: false, musicaComFundo: false, textoComFundo: false, musicaMostrarProximo: true, slideMostrarProximo: true } as const
 
 export const EsquemaTelaEspera = z.object({
   texto: z.string().default('IASD Itaqui').meta({ title: 'Texto principal' }),
@@ -89,6 +101,19 @@ export const EsquemaTelaEspera = z.object({
   corTexto: z.string().default('#ffffff').meta({ title: 'Cor do texto', 'x-ui': 'cor' }),
 })
 export type ConfigTelaEspera = z.infer<typeof EsquemaTelaEspera>
+
+export const EsquemaFundos = z.object({
+  padrao: z.string().nullable().default(null).meta({
+    title: 'Imagem de fundo padrão',
+    description: 'Fica atrás dos versículos, dos textos e das músicas que não têm imagem própria. Sem imagem, fica a cor de fundo de cada saída.',
+    'x-ui': 'arquivo-imagem',
+  }),
+  musicaImagemPropria: z.boolean().default(true).meta({
+    title: 'Músicas: usar a imagem da própria música',
+    description: 'A imagem que vem do Louvor JA. Desligado, as músicas também ficam com o fundo padrão.',
+  }),
+})
+export type ConfigFundos = z.infer<typeof EsquemaFundos>
 
 export const TEMAS = ['claro', 'escuro'] as const
 
@@ -142,6 +167,14 @@ export const EsquemaMusicas = z.object({
     description: 'A pasta "config" do Louvor JA, onde ficam o database.db e as músicas.',
     'x-ui': 'pasta',
   }),
+  aoTerminar: z.enum(['fechar', 'logo', 'manter']).default('fechar').meta({
+    title: 'Quando o áudio da música termina',
+    'x-opcoes': {
+      fechar: 'Fecha a música (a tela fica vazia)',
+      logo: 'Fecha a música e mostra a tela de espera (Logo)',
+      manter: 'Continua no último trecho, com a imagem da música',
+    },
+  }),
 })
 export type ConfigMusicas = z.infer<typeof EsquemaMusicas>
 
@@ -166,6 +199,51 @@ export const EsquemaBiblia = z.object({
 })
 export type ConfigBiblia = z.infer<typeof EsquemaBiblia>
 
+export const MODOS_MIDIAS_SLIDES = ['como-no-arquivo', 'sozinho', 'no-clique'] as const
+export const LARGURAS_SLIDES = ['1280', '1920', '2560'] as const
+
+export const EsquemaApresentacoes = z.object({
+  pularOcultos: z.boolean().default(true).meta({
+    title: 'Pular os slides ocultos',
+    description: 'Como no PowerPoint: o passador não para nos slides marcados como ocultos. Clicando no slide, ele aparece.',
+  }),
+  midiasDosSlides: z.enum(MODOS_MIDIAS_SLIDES).default('como-no-arquivo').meta({
+    title: 'Vídeos e áudios dos slides começam',
+    'x-opcoes': {
+      'como-no-arquivo': 'Como foi configurado no PowerPoint',
+      sozinho: 'Sozinhos, quando o slide aparece',
+      'no-clique': 'No próximo clique do passador',
+    },
+  }),
+  largura: z.enum(LARGURAS_SLIDES).default('1920').meta({
+    title: 'Resolução das imagens dos slides',
+    description: 'Largura em pixels. Maior fica mais nítido, mas ocupa mais disco. Vale para as próximas importações.',
+    'x-opcoes': { '1280': '1280 (HD)', '1920': '1920 (Full HD)', '2560': '2560' },
+  }),
+})
+export type ConfigApresentacoes = z.infer<typeof EsquemaApresentacoes>
+
+export const EsquemaRemoto = z.object({
+  ativo: z.boolean().default(true).meta({
+    title: 'Ligar o controle remoto',
+    description: 'Celular ou tablet na mesma rede (Wi-Fi) do computador abre o endereço mostrado aqui no navegador.',
+  }),
+  porta: z.number().int().min(1024).max(65535).default(8090).meta({
+    title: 'Porta',
+    description: 'Número que vai depois do IP no endereço (ex.: 192.168.0.10:8090).',
+  }),
+  exigirPin: z.boolean().default(true).meta({
+    title: 'Pedir PIN',
+    description: 'Quem abrir o endereço digita o PIN uma vez. Deixe ligado se o Wi-Fi é aberto à igreja.',
+  }),
+  pin: z
+    .string()
+    .regex(/^\d{0,8}$/, 'Só números (até 8)')
+    .default('')
+    .meta({ title: 'PIN (só números)', description: 'Em branco, o programa cria um novo.' }),
+})
+export type ConfigRemoto = z.infer<typeof EsquemaRemoto>
+
 /** Preferências da própria tela de comando (sem texto: não aparecem no formulário). */
 export const EsquemaInterface = z.object({
   painelRecolhido: z.boolean().default(false),
@@ -182,8 +260,11 @@ export const EsquemaConfig = z.object({
   versao: z.literal(1).default(1),
   geral: EsquemaGeral.prefault({}),
   telaEspera: EsquemaTelaEspera.prefault({}),
+  fundos: EsquemaFundos.prefault({}),
   musicas: EsquemaMusicas.prefault({}),
   biblia: EsquemaBiblia.prefault({}),
+  apresentacoes: EsquemaApresentacoes.prefault({}),
+  remoto: EsquemaRemoto.prefault({}),
   interface: EsquemaInterface.prefault({}),
   saidas: z
     .array(EsquemaSaida)

@@ -7,6 +7,8 @@ export const TIPO_ARRASTE = 'application/x-sonoplastia'
 export type ItemArrastado =
   | { tipo: 'midia'; midia: Pick<Midia, 'id' | 'tipo' | 'nome' | 'url'> }
   | { tipo: 'musica'; id: number; titulo: string; versao: VersaoMusica }
+  | { tipo: 'apresentacao'; id: number; nome: string; indice: number }
+  | { tipo: 'liturgia'; liturgiaId: number; itemId: string; titulo: string }
 
 export function iniciarArraste(e: React.DragEvent, item: ItemArrastado): void {
   e.dataTransfer.setData(TIPO_ARRASTE, JSON.stringify(item))

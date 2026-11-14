@@ -90,7 +90,7 @@ Alternativas descartadas: Tauri (memória parecida, backend em Rust mais difíci
 | Arrastar e soltar | `dnd-kit` dentro da interface; arquivos vindos do Explorer pelo drag nativo do HTML |
 | Banco | SQLite via `better-sqlite3` (FTS5 para a busca na Bíblia e nas letras), migrações versionadas |
 | Esquema de configurações | `zod` (tipos, valores padrão e validação; a tela de configurações é gerada a partir do esquema) |
-| PDF | `pdfjs-dist` |
+| PDF | Leitor de PDF do próprio Windows 10 (`Windows.Data.Pdf`) por script PowerShell, na importação (decidido em 2026-11-14 no lugar do `pdfjs-dist`: sem dependência nova, sem worker nem fontes para configurar) |
 | PPTX | PowerPoint via COM, por scripts PowerShell (seção 5.4) |
 | Vídeo/áudio: miniaturas, duração, conversão | `ffmpeg` e `ffprobe` empacotados em `resources/` |
 | QR code | `qrcode` |
@@ -300,7 +300,26 @@ PPTX, com o PowerPoint instalado no PC:
 - Recusar `.pptm`, `.ppsm` e `.ppt` (podem ter macros), como o site já faz.
 
 PDF:
-- `pdfjs-dist` desenha cada página no tamanho da saída; miniaturas geradas na importação.
+- Na importação, `scripts/powershell/pdf-exportar.ps1` usa o leitor de PDF do Windows
+  (`Windows.Data.Pdf`) e grava cada página como PNG, igual aos slides do PPTX. (Antes: `pdfjs-dist`.)
+
+Como ficou na implementação (2026-11-14):
+- `scripts/powershell/pptx-exportar.ps1`: `Slide.Export` em PNG (largura configurável, padrão 1920),
+  anotações (placeholder de corpo da página de anotações) e slide oculto. Se o PowerPoint já estava
+  aberto, só fecha a apresentação que abriu. Sem avanço por 2 min, o programa encerra o script e o
+  PowerPoint que ele abriu.
+- Vídeos e áudios: lidos do XML do .pptx (`src/main/apresentacoes/pptx.ts`, leitor de ZIP próprio):
+  arquivo, posição no slide, "no clique" ou "sozinho" (efeito `mediacall`/`playFrom` da linha do tempo),
+  "repetir" e "tocar entre slides". Extraídos para a pasta dos slides e conferidos pela janela-sonda
+  (convertidos pelo ffmpeg se não tocarem).
+- Vídeo toca por cima do slide, no lugar dele, invisível até começar (o slide já tem a capa). Áudio vai
+  para a trilha de áudio. O 1º "próximo" num slide com mídia "no clique" começa a mídia; o 2º troca de
+  slide (como no PowerPoint).
+- Palco: slide atual, próximo, número do slide e (opção) anotações. Não decodifica o vídeo: selo com o
+  tempo que falta.
+- Passador fora da página Apresentações: se a página aberta não usa PageDown/PageUp e há apresentação
+  no ar, ele anda os slides.
+- **Modo PowerPoint (animações) ainda não foi feito.**
 
 Comum aos dois:
 - Grade de slides, próximo/anterior, ir para slide, anotações visíveis só na tela de comando.
@@ -322,6 +341,16 @@ Comum aos dois:
   previsto e atraso em relação ao horário.
 - Arrastar da biblioteca para a liturgia; reordenar arrastando; duplicar; ativar e desativar item.
 - Opcional: importar a liturgia do Louvor JA (`liturgia.ja`).
+- **Seções** (pedido do usuário em 2026-11-14): a liturgia é dividida em seções (Escola Sabatina,
+  Louvor, Momento Infantil, Mensagem…), e cada item pertence a uma. Cada seção tem uma **imagem de
+  fundo**: enquanto um item dela está no ar, versículos e textos (e as músicas, se a seção pedir) ficam
+  com esse fundo no lugar do padrão. "Abertura" da seção mostra a imagem em tela cheia.
+
+Como ficou na implementação (2026-11-14): página Liturgia (monta e roda no mesmo lugar), documento
+JSON por culto na tabela `liturgias`, modelo padrão "Culto de sábado" com as 4 seções, executor no
+processo principal (`src/main/liturgia/`). Tipos de item por enquanto: música, mídia, apresentação,
+versículo, texto, tela preta/logo. Ainda não: itens das ferramentas (Fase 6), itens ligados às séries
+do site (Fase 7), transição por item, importar `liturgia.ja`.
 
 ### 5.6 Ferramentas
 
@@ -492,8 +521,8 @@ fechado (os dois programas brigam pelos projetores).
 | **1. Mídias, player e miniaturas** (código pronto em 2026-11-07, falta ver no projetor; ffmpeg ainda é o do Holyrics) | Biblioteca (importar, arrastar, ffmpeg, conversão), vídeo/imagem/áudio nas saídas, player completo, saída de áudio, miniaturas com arrastar e soltar, regra do Palco para vídeo | Arrastar um vídeo para a miniatura do Público toca no projetor; o player controla; o Palco mostra o tempo restante. |
 | **2. Músicas** (código pronto em 2026-11-07, falta ver no projetor) | Importador Louvor JA, biblioteca e busca, tocar com letra no tempo (cantado/playback/manual), fundos, estilos, Palco com próximo trecho, editor e "marcar tempos" | Uma música do Louvor JA toca com a letra trocando no tempo certo, inclusive pausando e pulando. |
 | **3. Bíblia** (código pronto em 2026-11-07, falta ver no projetor; download só por endereço colado) | Importar ARA/NVI, catálogo para baixar versões, FTS, parser de referência, apresentação com divisão automática, navegação, segunda versão | Digitar "jo 3 16" e mostrar em menos de 1 segundo; avançar versículo a versículo. |
-| **4. Apresentações** | PPTX por PowerPoint COM (imagens + anotações + vídeos embutidos), PDF por pdf.js, passador, modo PowerPoint | Um pptx de pregador importado fica igual ao original e passa pelo passador. |
-| **5. Liturgia** | Roteiro com todos os tipos, modelos, avanço automático, horários, itens ligados às séries do site | Um culto inteiro roda pela liturgia com o botão "Próximo". |
+| **4. Apresentações** (código pronto em 2026-11-14, sem o modo PowerPoint; falta ver no projetor) | PPTX por PowerPoint COM (imagens + anotações + vídeos embutidos), PDF por pdf.js, passador, modo PowerPoint | Um pptx de pregador importado fica igual ao original e passa pelo passador. |
+| **5. Liturgia** (código pronto em 2026-11-14, com seções e fundo por seção; falta ver na tela) | Roteiro com todos os tipos, modelos, avanço automático, horários, itens ligados às séries do site | Um culto inteiro roda pela liturgia com o botão "Próximo". |
 | **6. Ferramentas** | Relógio, temporizador, QR code, sorteio (sobreposição/tela cheia, por saída) | Relógio só no Palco, QR no canto do Público, temporizador com alertas. |
 | **7. Sincronização do site** | Porta do `sonoplastia_sync.py`, painel de status, `manifest.json` quando existir | Na sexta, os vídeos da semana aparecem sozinhos e a liturgia já aponta para eles. |
 | **8. Acabamento** | Todas as configurações, perfis, atalhos, backup, registros, instalador NSIS, iniciar com o Windows, atualização automática (opcional), teste de desempenho num culto inteiro | Instalado pelo `.exe` no PC da igreja e usado num culto real no lugar do Holyrics. |

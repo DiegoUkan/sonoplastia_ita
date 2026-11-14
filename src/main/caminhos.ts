@@ -14,6 +14,10 @@ export const caminhos = {
   banco: join(base, 'dados', 'sonoplastia.db'),
   midias: join(base, 'midias'),
   videos: join(base, 'midias', 'video'),
+  apresentacoes: join(base, 'midias', 'apresentacao'),
+  /** imagens de fundo das seções da liturgia */
+  fundos: join(base, 'midias', 'fundos'),
+  slides: join(base, 'cache', 'slides'),
   biblias: join(base, 'biblias'),
   cache: join(base, 'cache'),
   miniaturas: join(base, 'cache', 'miniaturas'),

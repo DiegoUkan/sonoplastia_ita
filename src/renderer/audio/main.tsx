@@ -63,7 +63,13 @@ function Audio() {
     return () => clearInterval(id)
   }, [])
 
-  return <audio ref={ref} preload="auto" />
+  // fim do áudio (com "repetir" ligado o navegador não chega ao fim): o motor decide se fecha a música
+  const aoTerminar = useCallback(() => {
+    const u = atual.current.estado?.audio.fonte?.url
+    if (u) api.comando({ tipo: 'audio:terminou', url: u })
+  }, [])
+
+  return <audio ref={ref} preload="auto" onEnded={aoTerminar} />
 }
 
 createRoot(document.getElementById('root')!).render(
