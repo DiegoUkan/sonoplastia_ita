@@ -12,6 +12,12 @@ if not exist node_modules (
   call npm install --no-audit --no-fund
   if errorlevel 1 goto erro
 )
+rem dependencia nova (IA das sugestoes de versiculos): se falhar, o programa abre assim mesmo
+if not exist node_modules\@anthropic-ai\sdk\package.json (
+  echo Instalando o que falta...
+  call npm install --no-audit --no-fund
+  if errorlevel 1 echo Nao deu para instalar agora; as sugestoes de versiculos podem nao funcionar.
+)
 if not exist node_modules\electron\dist\electron.exe (
   echo Baixando o Electron...
   pushd node_modules\electron

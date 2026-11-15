@@ -253,6 +253,39 @@ saída).
     na barra da página Mídias, ao lado do "Importar…" (pedido do usuário: dentro da aba ficava escondido). Configurações → **Site da
     igreja** (ligar e o endereço, num campo escondido, `x-ui: 'segredo'`). Barra de baixo mostra o download.
   - Banco: migração 4, tabela `site_itens`. Miniaturas das mídias agora têm a versão no nome (`<id>-<versão>.jpg`).
+- **2026-11-15 (noite, feito DURANTE um culto): sugestões de versículos ao vivo (o projeto `..\Transcrição_tempo_real`
+  dentro do programa) + estudo do YouTube.** Testado com Vitest (255; 74 novos em `tests/transcricao.test.ts`, com IA,
+  ElevenLabs e servidor HTTP falsos, e com a ARA/NVI de verdade do projeto de transcrição), typecheck e build numa pasta à
+  parte (apagada). O programa estava aberto no culto: **nada foi recompilado em `out\`, nada foi mostrado nas telas,
+  nenhuma chamada paga foi feita** (tudo rodou com prioridade baixa do Windows). **Ainda não visto na tela, nem testado com
+  microfone, ElevenLabs e IA de verdade.** Commitado e enviado ao GitHub no mesmo dia, a pedido do usuário. Feito:
+  - **Porta em TypeScript, sem o Python** (`src/main/transcricao/`): parser de referências faladas e números por extenso
+    (`parser.ts`, `numeros.ts`, `livrosFalados.ts`; os casos de teste do Python passam), Bíblia em memória + busca por palavras
+    BM25 com pares de palavras (`busca.ts`; medido neste PC: ARA+NVI em ~1,3 s, ~30 MB + ~15 MB do índice, 1 ms por
+    busca; montada em pedaços para não travar o motor), escolha da IA
+    (`ia.ts`), ElevenLabs Scribe v2 Realtime (`elevenlabs.ts`), o motor com as regras do `motor.py` (`motor.ts`: rigor,
+    não repetir em 10 min, só chama a IA com 12+ palavras novas, sem IA só citação quase literal) e a ligação com o resto
+    (`ligar.ts`). Tipos em `src/shared/transcricao.ts`.
+  - IA pelo **SDK oficial `@anthropic-ai/sdk` 1.8.0** (dependência nova; o `abrir.cmd` instala se faltar), modelo
+    `claude-haiku-5-5`, raciocínio desligado + esforço baixo + saída em JSON com esquema; no erro 400 tenta sem eles, nessa
+    ordem, e lembra. Mesmo pedido enxuto do Python (~2 mil tokens de entrada, 12 candidatos de 160 letras).
+  - ElevenLabs pelo WebSocket do próprio Node do Electron, chave no cabeçalho `xi-api-key` (conferido que chega), áudio em
+    blocos de 128 ms, reconexão com espera crescente, fila de ~30 s; 3 falhas seguidas sem abrir → confere a chave.
+  - **Janela oculta `escuta.html`** (microfone → PCM 16 kHz → processo principal), criada só quando a escuta liga e
+    destruída ao desligar (solta o microfone). Trocar o microfone com ela aberta reabre.
+  - **Página Bíblia:** botão "Sugestões" no alto (bolinha verde ouvindo, número de sugestões novas) e painel à direita:
+    "Ouvir" liga/desliga, situação, nível do microfone, o que está sendo dito, gasto da IA, sugestões (mais nova em cima,
+    selo Dita/Citação/Paráfrase/Alusão/Tema, prévia na versão padrão). Clicar mostra o 1º versículo pelo "Enviar para"
+    (o passador continua); o ícone do livro só abre o capítulo.
+  - **Celular:** seção "Sugestões ao vivo" no alto da aba Bíblia (ligar/desligar, o que está sendo dito, tocar mostra e o
+    passador de baixo anda os versículos); bolinha verde na aba Bíblia ouvindo. Método novo `ligarTranscricao`; eventos
+    `transcricao` e `transcricao-parcial` (no máximo 2 por segundo).
+  - **Configurações → Sugestões de versículos:** chave da ElevenLabs e da IA (campos escondidos), microfone (lista das
+    entradas de áudio), IA ligada, endereço e modelo, rigor, intervalo e janela. Botões "Copiar do projeto de transcrição"
+    (lê `data\config.json` e `.env` de lá; só o nome do que foi copiado aparece) e "Testar a IA" (uma chamada, fala de exemplo).
+  - Autoteste: passo `sugestoes` (fala simulada, sem microfone nem internet; PNGs `3c-biblia-sugestoes`, `3d-sugestao-no-ar`).
+  - **`ESTUDO-YOUTUBE.md`**: estudo pedido pelo usuário antes de fazer o YouTube (tocar direto × baixar antes). Nada
+    implementado; esperando a escolha.
 
 ## Decisões
 
@@ -383,6 +416,23 @@ saída).
     programa baixou (`gerenciada`); o resto é do operador.
   - A troca de arquivo de uma série nunca acontece com ela no ar (`emUsoNoMotor`: saídas, trilha de áudio, apresentação).
   - Mesmo conteúdo já na biblioteca (sha256): liga o item do site à mídia existente sem tomar conta dela.
+- **Sugestões de versículos ao vivo (2026-11-15): o projeto de transcrição foi PORTADO para TypeScript dentro do
+  programa** (pedido do usuário: "implemente o projeto nesse projeto"), não ligado por HTTP ao servidor Python como o
+  `PLANO.md` §5.11 previa. Um programa só, uma configuração só e sem os ~2,3 GB de RAM do Python + `bge-m3`.
+  - **Sem a busca por tema com vetores (`bge-m3`)**: no PC de 8 GB ela deixava ~0,5 GB livres. O tema fica com a IA, que
+    pode sugerir passagem fora dos candidatos da busca por palavras (sempre conferida na Bíblia daqui). Sem IA: só
+    referências ditas e citações quase literais (BM25 ≥ limiar do rigor), como no Python sem vetores.
+  - Só a IA no formato da Anthropic (a configuração salva do usuário já era essa, pelo New API dele). O provedor
+    "compatível com OpenAI" do Python não veio. Transcrição só pela ElevenLabs (o Whisper local era do notebook com GPU).
+  - **Sugere, nunca projeta sozinho**: o operador clica. O texto que vai ao ar vem da Bíblia importada aqui, nunca da IA.
+  - A escuta **não liga sozinha** ao abrir o programa (gasta crédito e usa o microfone); as sugestões e as falas ficam na
+    lista depois de desligar, até "Limpar".
+  - As chaves (ElevenLabs e IA) ficam só no `config.json` local, como a do site: não vão ao celular (`configPublica`),
+    ao log, ao GitHub nem a este arquivo.
+  - SDK 1.8.0 = API `2026-10-21`: a chave vai em `Authorization: Bearer`. Com endereço próprio (servidor intermediário,
+    como o New API do usuário), a mesma chave vai também em `X-Api-Key`, que é o que esses servidores costumam ler.
+  - O processamento pesado roda no processo principal (onde está o motor dos projetores), em pedaços com `respirar()`;
+    a escuta do microfone é uma janela oculta separada, para não arriscar a janela de áudio das músicas.
 
 ## PC da igreja (onde o programa vai rodar)
 
@@ -420,7 +470,7 @@ PDF reais deste PC, mostra, dá o clique do vídeo); controle remoto (PIN, méto
 e a página do celular numa janela oculta, com PNGs `r*-celular.png`); liturgia (culto de hoje do
 modelo, seção com fundo, texto → versículo com o passador, PNGs `L*`); ferramentas (canto e tela
 cheia, sorteio, painel da letra, pergunta da versão, painel das luzes só lendo, PNGs `F*`); coluna
-recolhida; emergência. O passo da Bíblia também captura a tabela (`3b-biblia-tabela`).
+recolhida; emergência. Depois da Bíblia vem `sugestoes` (fala simulada; nunca abre o microfone nem chama ElevenLabs/IA). O passo da Bíblia também captura a tabela (`3b-biblia-tabela`).
 `SONOPLASTIA_AUTOTESTE_PULAR=apresentacao,video` pula passos. **Abre o PowerPoint
 (oculto) e pesa no computador: não rodar durante o culto.** Janela oculta só
 pinta quando é capturada, por isso o autoteste captura duas vezes, e as transições CSS aparecem
@@ -458,7 +508,8 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
   - `prompt-site-sonoplastia.md`: o pedido original do `manifest.json` (o contrato que valeu é o de Decisões).
   - `holyrics-config.json` tem token do Holyrics: não copiar para este projeto.
 - `..\Transcrição_tempo_real\` — sugestões de versículos ao vivo (Python, FastAPI, SSE em `/eventos`).
-  Integração prevista para depois (`PLANO.md` §5.11). Tem o parser de referências e a tabela de livros.
+  **Portado para este programa em 2026-11-15** (`src/main/transcricao/`); o Python continua lá, mas não é mais preciso.
+  As chaves que estavam configuradas nele vêm pelo botão "Copiar do projeto de transcrição".
 
 ## Próximos passos
 
@@ -501,6 +552,15 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
    documento "Integração de mídias" da equipe do site) e olhar Mídias → Do site. Numa sexta, conferir que os vídeos
    da semana chegam, que o item "Provai e Vede" da liturgia passa a tocar o novo e que o Vida e Saúde antigo não é
    baixado (818 MB, `valid_for_sabbath: false`). (Commit e envio ao GitHub da Fase 7 feitos em 2026-11-15.)
+9a. **Sugestões de versículos ao vivo** (código pronto em 2026-11-15, ver Status). Fora do culto, programa reaberto pelo
+   `abrir.cmd`: (1) Configurações → Sugestões de versículos → "Copiar do projeto de transcrição" e depois "Testar a IA";
+   (2) ligar a saída da mesa de som na entrada de linha (hoje nada está ligado no PC) e escolher a entrada em "Microfone";
+   (3) Bíblia → Sugestões → Ouvir, falar uma referência ("João três dezesseis") e ver a sugestão; tocar uma gravação de
+   culto; (4) ver no celular (aba Bíblia); (5) rodar o autoteste (passo `sugestoes`) e olhar `3c`/`3d`. (Commit e envio
+   ao GitHub já feitos em 2026-11-15.)
+   Conferir no New API do usuário se o pedido com `Authorization: Bearer` + `X-Api-Key` passa e se o preço do
+   `claude-haiku-5-5` está configurado lá (antes ele cobrava ~US$ 10 a cada 2–3 min por falta de preço).
+9b. **YouTube**: o usuário lê o `ESTUDO-YOUTUBE.md` e escolhe (A tocar direto, B baixar antes, ou só o site). Recomendado: A.
 10. (Depois) Modo PowerPoint com animações, se fizer falta.
 
 ## Pendências conhecidas
@@ -528,6 +588,9 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
   minimizado (fica o botão "Letra no ar").
   O controle remoto do celular ainda não mostra nem passa a liturgia. Sem desfazer: excluir item ou seção
   é na hora (a seção com itens pede confirmação).
+- Sugestões de versículos: sem a caixa "buscar por tema" do painel Python (a busca por palavras da página Bíblia
+  continua); sem os `keyterms` da ElevenLabs (nomes dos livros); a liturgia não liga a escuta sozinha (ex.: na seção
+  Mensagem); o nível do microfone só aparece no computador; não há histórico salvo das sugestões (some ao fechar).
 - Site: apresentações (.pdf/.pptx) que vêm de envios não saem sozinhas quando o prazo acaba (Apresentações não tem
   lixeira; excluir lá é para sempre). Sem limite de banda nos downloads. Um item de mídia da liturgia guarda o tipo
   (`midiaTipo`) de quando foi posto: se a série trocar de vídeo para imagem, o rótulo do item fica desatualizado.

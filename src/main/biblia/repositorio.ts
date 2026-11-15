@@ -85,6 +85,13 @@ export class RepositorioBiblia {
       .all(sigla, livro, capitulo) as unknown as VersiculoTexto[]
   }
 
+  /** Todos os versículos de uma versão, em ordem, um de cada vez (sem carregar a Bíblia inteira numa lista). */
+  linhas(sigla: string): Iterable<{ livro: number; capitulo: number; versiculo: number; texto: string }> {
+    return this.db
+      .prepare('select livro, capitulo, versiculo, texto from biblia_versiculos where sigla = ? order by livro, capitulo, versiculo')
+      .iterate(sigla) as unknown as Iterable<{ livro: number; capitulo: number; versiculo: number; texto: string }>
+  }
+
   totalCapitulos(sigla: string, livro: number): number {
     const r = this.db.prepare('select max(capitulo) as n from biblia_versiculos where sigla = ? and livro = ?').get(sigla, livro) as { n: number | null }
     return r.n ?? 0

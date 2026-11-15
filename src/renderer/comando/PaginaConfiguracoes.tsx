@@ -15,6 +15,7 @@ import {
   Presentation,
   SlidersHorizontal,
   Smartphone,
+  Sparkles,
   Wallpaper,
   Wrench,
 } from 'lucide-react'
@@ -30,8 +31,10 @@ import {
   EsquemaMusicas,
   EsquemaSite,
   EsquemaTelaEspera,
+  EsquemaTranscricao,
 } from '../../shared/config'
 import type { Progresso, ResultadoLouvorJa } from '../../shared/dados'
+import type { ResultadoTesteIa } from '../../shared/transcricao'
 import { urlMidia } from '../../shared/midia'
 import { TelaEspera } from '../compartilhado/Camadas'
 import { api } from '../compartilhado/ganchos'
@@ -40,7 +43,7 @@ import { FormularioEsquema } from './FormularioEsquema'
 import { SecaoRemoto } from './Remoto'
 import { BarraProgresso, Botao, Secao } from './ui'
 
-type IdPasta = 'geral' | 'musicas' | 'biblia' | 'apresentacoes' | 'fundos' | 'espera' | 'ferramentas' | 'site' | 'iluminacao' | 'remoto'
+type IdPasta = 'geral' | 'musicas' | 'biblia' | 'sugestoes' | 'apresentacoes' | 'fundos' | 'espera' | 'ferramentas' | 'site' | 'iluminacao' | 'remoto'
 
 const nomeArquivo = (caminho: string) => caminho.split(/[\\/]/).pop() ?? caminho
 
@@ -66,6 +69,18 @@ const PASTAS: Array<{ id: IdPasta; titulo: string; descricao: string; icone: Luc
     descricao: 'Versão, segunda versão, tamanho de cada tela e referência.',
     icone: BookOpen,
     resumo: (c) => (c.biblia.versaoPadrao ? `Versão ${c.biblia.versaoPadrao}${c.biblia.segundaVersao ? ` + ${c.biblia.segundaVersao}` : ''}` : 'Nenhuma versão escolhida'),
+  },
+  {
+    id: 'sugestoes',
+    titulo: 'Sugestões de versículos',
+    descricao: 'Ouvir o pregador e sugerir versículos ao vivo (ElevenLabs e IA).',
+    icone: Sparkles,
+    resumo: (c) =>
+      !c.transcricao.elevenlabsChave.trim()
+        ? 'Falta a chave da ElevenLabs'
+        : c.transcricao.iaAtiva && c.transcricao.iaChave.trim()
+          ? `Com IA (${c.transcricao.iaModelo}) · rigor ${c.transcricao.rigor}%`
+          : 'Sem IA: só referências ditas e citações',
   },
   {
     id: 'apresentacoes',
@@ -212,6 +227,18 @@ function ConteudoPasta({ pasta, config, salvar }: { pasta: IdPasta; config: Conf
           <FormularioEsquema esquema={EsquemaBiblia} valor={config.biblia} aoMudar={(biblia) => salvar({ ...config, biblia })} />
         </Secao>
       )
+    case 'sugestoes':
+      return (
+        <>
+          <Secao
+            titulo="Sugestões de versículos"
+            descricao="Liga em Bíblia → Sugestões (ou no celular, na aba Bíblia). O programa ouve o pregador, transcreve e sugere; nada vai para os projetores sem o operador clicar."
+          >
+            <FormularioEsquema esquema={EsquemaTranscricao} valor={config.transcricao} aoMudar={(transcricao) => salvar({ ...config, transcricao })} />
+          </Secao>
+          <FerramentasSugestoes />
+        </>
+      )
     case 'apresentacoes':
       return (
         <Secao titulo="Apresentações" descricao="O próximo slide e as anotações em cada saída ficam em Telas.">
@@ -284,6 +311,73 @@ function PreviaFundo({ caminho }: { caminho: string | null }) {
       </div>
       {!caminho && <span className="absolute bottom-2 left-0 right-0 text-center text-[11px] text-white/50">sem imagem: fica a cor de fundo da saída</span>}
     </div>
+  )
+}
+
+/** Copiar as chaves do projeto de transcrição e testar a IA. */
+function FerramentasSugestoes() {
+  const [msg, setMsg] = useState<{ tom: 'ok' | 'erro'; texto: string } | null>(null)
+  const [teste, setTeste] = useState<ResultadoTesteIa | null>(null)
+  const [ocupado, setOcupado] = useState<'copiar' | 'testar' | null>(null)
+
+  const copiar = async () => {
+    setOcupado('copiar')
+    setMsg(null)
+    try {
+      const r = await api.importarConfigTranscricao()
+      const partes = [r.copiado.length ? `Copiado: ${r.copiado.join(', ')}.` : '', ...r.avisos].filter(Boolean)
+      setMsg({ tom: r.copiado.length ? 'ok' : 'erro', texto: partes.join(' ') })
+    } catch (e) {
+      setMsg({ tom: 'erro', texto: mensagemDeErro(e) })
+    } finally {
+      setOcupado(null)
+    }
+  }
+  const testar = async () => {
+    setOcupado('testar')
+    setMsg(null)
+    setTeste(null)
+    try {
+      setTeste(await api.testarIaTranscricao())
+    } catch (e) {
+      setMsg({ tom: 'erro', texto: mensagemDeErro(e) })
+    } finally {
+      setOcupado(null)
+    }
+  }
+
+  return (
+    <Secao titulo="Chaves e teste" descricao="As chaves ficam só no config.json deste computador: não vão para o celular, para o log nem para o GitHub.">
+      <div className="flex flex-wrap items-center gap-2">
+        <Botao icone={Download} disabled={!!ocupado} onClick={() => void copiar()} title="Lê data\config.json e .env da pasta Transcrição_tempo_real">
+          {ocupado === 'copiar' ? 'Copiando…' : 'Copiar do projeto de transcrição'}
+        </Botao>
+        <Botao icone={Sparkles} disabled={!!ocupado} onClick={() => void testar()} title="Uma chamada à IA com uma fala de exemplo sobre ansiedade (custa menos de um centavo)">
+          {ocupado === 'testar' ? 'Testando…' : 'Testar a IA'}
+        </Botao>
+      </div>
+      {msg && <p className={`mt-3 rounded-md px-3 py-2 text-sm ${msg.tom === 'ok' ? 'bg-ok/12 text-ok-texto' : 'bg-perigo/10 text-perigo-texto'}`}>{msg.texto}</p>}
+      {teste && (
+        <div className="mt-3 rounded-md bg-painel-2 px-3 py-2 text-sm">
+          <p className="text-suave">
+            A IA respondeu em {teste.segundos.toLocaleString('pt-BR')} s{teste.escolhas.length ? ':' : ', sem sugestões.'}
+          </p>
+          <ul className="mt-1 list-disc pl-5">
+            {teste.escolhas.map((x) => (
+              <li key={x.referencia}>
+                <b>{x.referencia}</b> ({x.forca}) {x.motivo}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <ul className="mt-4 flex list-disc flex-col gap-1 pl-5 text-xs text-suave">
+        <li>“Copiar do projeto de transcrição” traz as chaves que já estavam configuradas lá (ElevenLabs e IA), o rigor e os tempos.</li>
+        <li>Custo aproximado de um culto de 2 horas ouvindo: ElevenLabs cerca de US$ 0,80; IA (claude-haiku-5-5) cerca de US$ 0,20 a 0,40.</li>
+        <li>A transcrição precisa de internet. Sem internet, a escuta tenta de novo sozinha.</li>
+        <li>O texto que vai para os projetores vem sempre da Bíblia importada neste programa, nunca da IA.</li>
+      </ul>
+    </Secao>
   )
 }
 

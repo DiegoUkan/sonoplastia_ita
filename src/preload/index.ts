@@ -97,6 +97,16 @@ const api: ApiSonoplastia = {
   cenarioLuz: chamar(CANAIS.cenarioLuz),
   abrirPaginaLuz: chamar(CANAIS.abrirPaginaLuz),
 
+  estadoTranscricao: chamar(CANAIS.estadoTranscricao),
+  aoMudarTranscricao: (cb) => ouvir(CANAIS.transcricaoMudou, cb),
+  aoParcialTranscricao: (cb) => ouvir(CANAIS.transcricaoParcial, cb),
+  ligarTranscricao: chamar(CANAIS.ligarTranscricao),
+  limparSugestoes: chamar(CANAIS.limparSugestoes),
+  testarIaTranscricao: chamar(CANAIS.testarIaTranscricao),
+  importarConfigTranscricao: chamar(CANAIS.importarConfigTranscricao),
+  enviarAudioEscuta: (pcm) => ipcRenderer.send(CANAIS.escutaAudio, pcm),
+  avisarEscuta: (a) => ipcRenderer.send(CANAIS.escutaAviso, a),
+
   statusRemoto: chamar(CANAIS.statusRemoto),
   aoMudarRemoto: (cb) => ouvir(CANAIS.remotoMudou, cb),
   aoPassador: (cb) => ouvir(CANAIS.passador, cb),

@@ -505,11 +505,14 @@ do telão da transcrição, onde coincidirem.
   local com PIN: passar slides pelo celular, ver e ajustar o temporizador, tela simples para o pregador.
   Usar SSE + POST (não WebSocket), pelo mesmo motivo do projeto de transcrição. Os projetores nunca
   dependem desse servidor.
-- **Transcrição em tempo real:** o projeto `..\Transcrição_tempo_real` já é um servidor FastAPI que
-  publica sugestões de versículos por SSE em `/eventos`. Integração: um painel "Sugestões" na aba Bíblia
-  lê esses eventos; clicar numa sugestão mostra o versículo **pela saída deste programa** (o texto vem
-  da base de Bíblia daqui, nunca da IA). A transcrição continua sendo um processo separado, ligado só
-  quando for usar (ela ocupa ~2,3 GB de RAM com o `bge-m3`).
+- **Transcrição em tempo real — feito em 2026-11-15, de outro jeito:** em vez de ler o servidor Python por
+  SSE, o projeto `..\Transcrição_tempo_real` foi **portado para TypeScript dentro do programa**
+  (`src/main/transcricao/`): ElevenLabs para transcrever, parser de referências faladas, busca por palavras
+  (BM25 com pares) e a IA da Anthropic para escolher. Ficou de fora a busca por tema com vetores (`bge-m3`,
+  ~2,3 GB de RAM). Painel "Sugestões" na página Bíblia e no celular; clicar numa sugestão mostra o
+  versículo **pela saída deste programa** (o texto vem da Bíblia daqui, nunca da IA). A escuta do microfone
+  é uma janela oculta que só existe enquanto "Ouvir" está ligado. Detalhes no `CLAUDE.md` (Status e Decisões).
+- **YouTube:** estudo em `ESTUDO-YOUTUBE.md` (tocar pelo player oficial × baixar antes); esperando a escolha.
 
 ## 6. Dados e pastas
 
@@ -595,8 +598,9 @@ relógio, adiantadas se fizer falta). Até lá, o Holyrics continua no culto.
 - **Vídeo no mesmo instante nas duas saídas** (se alguém configurar espelhar): duas decodificações no
   i3. O padrão do Palco evita isso. Se for usado, sincronizar pela posição do Público e soltar o som só
   de uma saída.
-- **Memória:** o Electron com 4 janelas deve ficar em ~500 MB. Junto com a transcrição (~2,3 GB) fica
-  apertado nos 8 GB: medir num culto inteiro na Fase 8.
+- **Memória:** o Electron com 4 janelas deve ficar em ~500 MB. A transcrição portada (sem o `bge-m3`)
+  acrescenta a Bíblia em memória e o índice de palavras (dezenas de MB), não os ~2,3 GB do Python: medir
+  num culto inteiro na Fase 8.
 - **Módulo nativo** (`better-sqlite3`): precisa ser compilado para a versão do Electron
   (`electron-builder install-app-deps`). Se der problema no Windows, avaliar o `node:sqlite` embutido.
 - **Contêiner MSIX do Claude:** ver seção 2.

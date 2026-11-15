@@ -40,8 +40,10 @@ export const METODOS_REMOTO = [
   'capitulo',
   'totalCapitulos',
   'buscarBiblia',
+  // sugestões de versículos ao vivo: ligar/desligar "ouvir e sugerir"
+  'ligarTranscricao',
 ] as const
 export type MetodoRemoto = (typeof METODOS_REMOTO)[number]
 
 /** Eventos que o servidor manda ao celular (`GET /api/eventos`, Server-Sent Events). */
-export type EventoRemoto = 'estado' | 'config' | 'telemetria' | 'biblia' | 'midias'
+export type EventoRemoto = 'estado' | 'config' | 'telemetria' | 'biblia' | 'midias' | 'transcricao' | 'transcricao-parcial'

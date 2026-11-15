@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Midia, Musica, ResultadoBuscaBiblia, ResumoMusica, TipoMidia, VersaoBiblia, VersiculoTexto } from '../../shared/dados'
 import type { Alvo, Comando, EstadoMotor, Telemetria, VersaoMusica } from '../../shared/estado'
 import type { ConfigPublica, DirecaoPassador, MetodoRemoto } from '../../shared/remoto'
+import type { EstadoTranscricao } from '../../shared/transcricao'
 
 /** Avisado quando o servidor pede o PIN (o PIN mudou ou o cookie sumiu). */
 let aoPedirPin: () => void = () => {}
@@ -42,6 +43,7 @@ export const api = {
   capitulo: (sigla: string, livro: number, capitulo: number) => chamar<VersiculoTexto[]>('capitulo', sigla, livro, capitulo),
   totalCapitulos: (sigla: string, livro: number) => chamar<number>('totalCapitulos', sigla, livro),
   buscarBiblia: (sigla: string, termo: string) => chamar<ResultadoBuscaBiblia[]>('buscarBiblia', sigla, termo),
+  ligarTranscricao: (ligar: boolean) => chamar<void>('ligarTranscricao', ligar),
 }
 
 /** Miniatura de uma mídia (o servidor só entrega as da pasta de miniaturas). */
@@ -79,11 +81,15 @@ export interface Conexao {
   telemetrias: Record<string, Telemetria>
   /** muda quando a biblioteca de mídias muda (para recarregar a lista) */
   versaoMidias: number
+  /** sugestões de versículos ao vivo */
+  transcricao: EstadoTranscricao | null
+  /** o que está sendo dito agora */
+  parcial: string
 }
 
 /** Eventos do servidor (estado do motor, configuração, telemetria). Reconecta sozinho. */
 export function useConexao(ativo: boolean, aoNaoAutorizado: () => void): Conexao {
-  const [c, setC] = useState<Conexao>({ conectado: false, estado: null, config: null, telemetrias: {}, versaoMidias: 0 })
+  const [c, setC] = useState<Conexao>({ conectado: false, estado: null, config: null, telemetrias: {}, versaoMidias: 0, transcricao: null, parcial: '' })
   const avisar = useRef(aoNaoAutorizado)
   avisar.current = aoNaoAutorizado
 
@@ -111,6 +117,14 @@ export function useConexao(ativo: boolean, aoNaoAutorizado: () => void): Conexao
         setC((x) => ({ ...x, telemetrias: { ...x.telemetrias, [t.saidaId]: t } }))
       })
       es.addEventListener('midias', () => setC((x) => ({ ...x, versaoMidias: x.versaoMidias + 1 })))
+      es.addEventListener('transcricao', (ev) => {
+        const t = JSON.parse((ev as MessageEvent).data) as EstadoTranscricao
+        setC((x) => ({ ...x, transcricao: t, parcial: t.ligado ? x.parcial : '' }))
+      })
+      es.addEventListener('transcricao-parcial', (ev) => {
+        const p = JSON.parse((ev as MessageEvent).data) as { texto: string }
+        setC((x) => ({ ...x, parcial: p.texto }))
+      })
       es.onerror = () => {
         setC((x) => ({ ...x, conectado: false }))
         // fechado de vez (ex.: 401): confere o PIN e tenta de novo; senão o navegador reconecta sozinho

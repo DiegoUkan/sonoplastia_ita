@@ -4,7 +4,8 @@
  * Cada opção tem tipo, valor padrão e textos (`title`, `description`) para a tela de configurações,
  * que é gerada a partir deste esquema (`z.toJSONSchema`). Opção sem `title` não aparece na tela.
  * Chaves extras usadas pela tela:
- *   'x-ui'     'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'versao-biblia' | 'pasta' | 'segredo'
+ *   'x-ui'     'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'microfone' | 'versao-biblia' | 'pasta' | 'segredo'
+ *   'x-placeholder' texto de exemplo do campo (texto e segredo)
  *   'x-passo'  passo do controle deslizante
  *   'x-opcoes' rótulos das opções de um enum
  * Para criar uma opção nova, basta acrescentá-la aqui com `.default()` e `.meta()`.
@@ -386,6 +387,59 @@ export const EsquemaSite = z.object({
 })
 export type ConfigSite = z.infer<typeof EsquemaSite>
 
+/**
+ * Sugestões de versículos ao vivo: a fala do pregador é transcrita pela ElevenLabs e a IA (API da
+ * Anthropic) escolhe os versículos. As chaves ficam só no config.json deste computador (nunca no
+ * celular, no log nem no GitHub).
+ */
+export const EsquemaTranscricao = z.object({
+  elevenlabsChave: z.string().max(300).default('').meta({
+    title: 'Chave da ElevenLabs',
+    description: 'Transcreve a fala do pregador (ElevenLabs Scribe, cerca de US$ 0,40 por hora ouvindo).',
+    'x-ui': 'segredo',
+    'x-placeholder': 'sk_…',
+  }),
+  microfone: z.string().default('').meta({
+    title: 'Microfone ou entrada de áudio',
+    description: 'De onde vem a voz do pregador. O melhor é ligar a saída da mesa de som na entrada de linha do computador.',
+    'x-ui': 'microfone',
+  }),
+  iaAtiva: z.boolean().default(true).meta({
+    title: 'Usar a IA para escolher os versículos',
+    description: 'Sem a IA, só aparecem as referências ditas em voz alta ("João 3:16") e as citações quase literais.',
+  }),
+  iaUrl: z.string().max(500).default('').meta({
+    title: 'Endereço da API da IA',
+    description: 'Em branco usa a Anthropic (api.anthropic.com). Pode ser um servidor próprio que fale a API da Anthropic.',
+    'x-placeholder': 'https://api.anthropic.com',
+  }),
+  iaChave: z.string().max(500).default('').meta({ title: 'Chave da API da IA', 'x-ui': 'segredo', 'x-placeholder': 'sk-…' }),
+  iaModelo: z.string().max(100).default('claude-haiku-5-5').meta({
+    title: 'Modelo da IA',
+    description: 'claude-haiku-5-5 é o mais barato (cerca de US$ 0,20 a 0,40 por culto de 2 horas).',
+  }),
+  rigor: z.number().int().min(0).max(100).default(50).meta({
+    title: 'Rigor (%)',
+    description:
+      'Só aparece o que tiver ligação com a fala pelo menos deste tamanho: 100 citação, 85 paráfrase, 70 alusão (história ou frase famosa), 50 tema central, 30 tema relacionado. Referências ditas em voz alta aparecem sempre.',
+    'x-ui': 'deslizante',
+    'x-passo': 5,
+  }),
+  intervaloS: z.number().int().min(3).max(60).default(10).meta({
+    title: 'Pensar de novo a cada (segundos)',
+    description: 'Cada vez é uma chamada à IA (só quando houve fala nova). Menos segundos = sugestões mais rápidas e conta maior.',
+    'x-ui': 'deslizante',
+    'x-passo': 1,
+  }),
+  janelaS: z.number().int().min(10).max(120).default(45).meta({
+    title: 'Quanto da fala olhar (segundos)',
+    description: 'A IA lê os últimos segundos do que foi dito.',
+    'x-ui': 'deslizante',
+    'x-passo': 5,
+  }),
+})
+export type ConfigTranscricao = z.infer<typeof EsquemaTranscricao>
+
 /** Preferências da própria tela de comando (sem texto: não aparecem no formulário). */
 export const EsquemaInterface = z.object({
   painelRecolhido: z.boolean().default(false),
@@ -410,6 +464,7 @@ export const EsquemaConfig = z.object({
   ferramentas: EsquemaFerramentas.prefault({}),
   iluminacao: EsquemaIluminacao.prefault({}),
   site: EsquemaSite.prefault({}),
+  transcricao: EsquemaTranscricao.prefault({}),
   interface: EsquemaInterface.prefault({}),
   saidas: z
     .array(EsquemaSaida)

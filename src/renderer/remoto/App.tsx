@@ -95,7 +95,7 @@ function TelaPin({ aoEntrar }: { aoEntrar: () => void }) {
 }
 
 function Painel({ aoPedirPin }: { aoPedirPin: () => void }) {
-  const { conectado, estado, config, telemetrias, versaoMidias } = useConexao(true, aoPedirPin)
+  const { conectado, estado, config, telemetrias, versaoMidias, transcricao, parcial } = useConexao(true, aoPedirPin)
   const [aba, setAba] = useState<Aba>('musicas')
   const [alvo, setAlvo] = useState<string>(TODAS)
   const [erro, setErro] = useState<string | null>(null)
@@ -149,7 +149,7 @@ function Painel({ aoPedirPin }: { aoPedirPin: () => void }) {
           <div className="flex flex-col gap-2 rounded-xl border border-borda bg-painel p-2">
             <div className="grid grid-cols-3 gap-1">
               <BotaoAba ativo={aba === 'musicas'} icone={Music} rotulo="Músicas" aoClicar={() => setAba('musicas')} />
-              <BotaoAba ativo={aba === 'biblia'} icone={BookOpen} rotulo="Bíblia" aoClicar={() => setAba('biblia')} />
+              <BotaoAba ativo={aba === 'biblia'} icone={BookOpen} rotulo="Bíblia" aoClicar={() => setAba('biblia')} indicador={!!transcricao?.ligado} />
               <BotaoAba ativo={aba === 'midias'} icone={FolderOpen} rotulo="Mídias" aoClicar={() => setAba('midias')} />
             </div>
             <div className="flex items-center gap-2 px-1">
@@ -167,7 +167,7 @@ function Painel({ aoPedirPin }: { aoPedirPin: () => void }) {
             <AbaMusicas estado={estado} alvo={alvo} tentar={tentar} />
           </div>
           <div className={aba === 'biblia' ? '' : 'hidden'}>
-            <AbaBiblia config={config} alvo={alvo} tentar={tentar} aoMudarPassador={setBiblia} />
+            <AbaBiblia config={config} alvo={alvo} tentar={tentar} aoMudarPassador={setBiblia} transcricao={transcricao} parcial={parcial} />
           </div>
           <div className={aba === 'midias' ? '' : 'hidden'}>
             <AbaMidias alvo={alvo} tentar={tentar} versao={versaoMidias} visivel={aba === 'midias'} />
@@ -180,7 +180,20 @@ function Painel({ aoPedirPin }: { aoPedirPin: () => void }) {
   )
 }
 
-function BotaoAba({ ativo, icone: Icone, rotulo, aoClicar }: { ativo: boolean; icone: typeof Music; rotulo: string; aoClicar: () => void }) {
+function BotaoAba({
+  ativo,
+  icone: Icone,
+  rotulo,
+  aoClicar,
+  indicador = false,
+}: {
+  ativo: boolean
+  icone: typeof Music
+  rotulo: string
+  aoClicar: () => void
+  /** bolinha verde (ex.: sugestões ao vivo ouvindo) */
+  indicador?: boolean
+}) {
   return (
     <button
       type="button"
@@ -191,6 +204,7 @@ function BotaoAba({ ativo, icone: Icone, rotulo, aoClicar }: { ativo: boolean; i
     >
       <Icone className="size-4" />
       {rotulo}
+      {indicador && <span className="size-2 animate-pulse rounded-full bg-ok" />}
     </button>
   )
 }

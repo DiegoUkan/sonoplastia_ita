@@ -25,6 +25,7 @@ import { importarLouvorJa } from './musicas/louvorJa'
 import type { RepositorioMusicas } from './musicas/repositorio'
 import type { ServidorRemoto } from './remoto/servidor'
 import type { GerenciadorTelas } from './telas/gerenciador'
+import type { MotorSugestoes } from './transcricao/motor'
 
 interface Contexto {
   motor: Motor
@@ -46,6 +47,8 @@ interface Contexto {
   remoto: ServidorRemoto
   liturgias: RepositorioLiturgias
   executorLiturgia: ExecutorLiturgia
+  /** sugestões de versículos ao vivo (no autoteste, só falas simuladas: nada de microfone nem internet) */
+  transcricao: MotorSugestoes
   pasta: string
 }
 
@@ -150,6 +153,26 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tabela')?.click()`)
     await esperar(800)
     await capturar('3b-biblia-tabela', 'comando')
+  })
+
+  // sugestões ao vivo com uma fala simulada (sem microfone, sem ElevenLabs e sem IA)
+  await passo('sugestoes', async () => {
+    if (!ctx.biblia.versoes().length) {
+      relatorio.sugestoes = 'sem Bíblia importada; pulado'
+      return
+    }
+    const t0 = Date.now()
+    await ctx.transcricao.simular('Abram a Bíblia comigo em Filipenses capítulo 4, versículos 6 e 7. E guardem também o Salmo 23.')
+    relatorio.sugestoes = { segundos: (Date.now() - t0) / 1000, sugestoes: ctx.transcricao.estado().sugestoes.map((s) => s.referencia) }
+    await navegar('biblia')
+    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('Sugestões'))?.click()`)
+    await esperar(800)
+    await capturar('3c-biblia-sugestoes', 'comando')
+    // clicar na sugestão põe o primeiro versículo no ar
+    await noComando(`[...document.querySelectorAll('aside button')].find((b) => b.textContent.includes('Filipenses 4:6-7'))?.click()`)
+    await esperar(1500)
+    relatorio.sugestaoNoAr = ctx.motor.estado.saidas.publico?.conteudo
+    await capturar('3d-sugestao-no-ar')
   })
 
   await passo('musica', async () => {

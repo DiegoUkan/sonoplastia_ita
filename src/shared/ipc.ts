@@ -19,6 +19,7 @@ import type {
 import type { Alvo, ArquivoEscolhido, Comando, EstadoMotor, EstadoTelas, Telemetria, VersaoMusica } from './estado'
 import type { EstadoLuz } from './iluminacao'
 import type { EstadoSite } from './site'
+import type { AvisoEscuta, EstadoTranscricao, ParcialTranscricao, ResultadoTesteIa } from './transcricao'
 
 export const CANAIS = {
   comando: 'motor:comando',
@@ -96,6 +97,16 @@ export const CANAIS = {
   alternarLuz: 'luz:alternar',
   cenarioLuz: 'luz:cenario',
   abrirPaginaLuz: 'luz:abrir-pagina',
+  // sugestões de versículos ao vivo (transcrição da fala)
+  estadoTranscricao: 'transcricao:estado',
+  transcricaoMudou: 'transcricao:mudou',
+  transcricaoParcial: 'transcricao:parcial',
+  ligarTranscricao: 'transcricao:ligar',
+  limparSugestoes: 'transcricao:limpar',
+  testarIaTranscricao: 'transcricao:testar-ia',
+  importarConfigTranscricao: 'transcricao:importar-config',
+  escutaAudio: 'escuta:audio',
+  escutaAviso: 'escuta:aviso',
   // controle remoto (celular)
   statusRemoto: 'remoto:status',
   remotoMudou: 'remoto:mudou',
@@ -205,6 +216,20 @@ export interface ApiSonoplastia {
   /** copia uma imagem (arrastada do Explorer) para a pasta de fundos; devolve o caminho */
   importarFundoSecao(caminho: string): Promise<string>
   aoMudarLiturgias(cb: () => void): () => void
+
+  /** sugestões de versículos ao vivo: estado, sugestões e o que está sendo dito */
+  estadoTranscricao(): Promise<EstadoTranscricao>
+  aoMudarTranscricao(cb: (e: EstadoTranscricao) => void): () => void
+  aoParcialTranscricao(cb: (p: ParcialTranscricao) => void): () => void
+  /** liga ou desliga "ouvir e sugerir" */
+  ligarTranscricao(ligar: boolean): Promise<void>
+  limparSugestoes(): Promise<void>
+  testarIaTranscricao(): Promise<ResultadoTesteIa>
+  /** copia as chaves do projeto de transcrição para as configurações; devolve o que foi copiado */
+  importarConfigTranscricao(): Promise<{ copiado: string[]; avisos: string[] }>
+  /** só a janela de escuta usa: áudio PCM 16 bits, 16 kHz */
+  enviarAudioEscuta(pcm: Uint8Array): void
+  avisarEscuta(a: AvisoEscuta): void
 
   /** controle remoto: endereço, PIN e quantos celulares estão conectados */
   statusRemoto(): Promise<StatusRemoto>

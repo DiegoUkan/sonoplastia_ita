@@ -2,17 +2,22 @@
  * Página "Bíblia": digite "jo 3 16", "sl 23", "1 co 13 4-7" ou palavras. Enter mostra; o passador
  * (PageDown/PageUp) anda versículo a versículo, dividindo os longos em mais de uma tela.
  */
-import { AlignLeft, BookOpen, ChevronLeft, ChevronRight, Download, FileJson, LayoutGrid, Link, Search, Settings2 } from 'lucide-react'
+import { AlignLeft, BookOpen, ChevronLeft, ChevronRight, Download, FileJson, LayoutGrid, Link, Search, Settings2, Sparkles } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { type GrupoLivro, grupoDoLivro, LIVROS, type Livro } from '../../shared/biblia/livros'
 import { formatarReferencia, interpretarReferencia } from '../../shared/biblia/referencia'
 import type { Config } from '../../shared/config'
 import type { ArquivoBibliaEncontrado, Progresso, ResultadoBuscaBiblia, VersaoBiblia, VersiculoTexto } from '../../shared/dados'
 import { dividirTexto } from '../../shared/texto'
+import type { SugestaoVersiculo } from '../../shared/transcricao'
 import { api } from '../compartilhado/ganchos'
 import type { TeclaPagina } from './App'
 import { mensagemDeErro } from './acoes'
+import { PainelSugestoes, useTranscricao } from './PainelSugestoes'
 import { BarraProgresso, Botao, classeEntrada, Segmentado } from './ui'
+
+// painel de sugestões aberto ou fechado, lembrado enquanto o programa está aberto
+let sugestoesAbertas = false
 
 const digitando = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select')
 
@@ -48,6 +53,26 @@ export function PaginaBiblia({ alvo, config, registrarTeclas }: { alvo: string; 
   const [modo, setModo] = useState<'tabela' | 'texto'>('tabela')
   const segundas = useRef(new Map<string, VersiculoTexto[]>())
   const lista = useRef<HTMLDivElement>(null)
+  // sugestões de versículos ao vivo (o painel abre sozinho quando a escuta é ligada)
+  const transcricao = useTranscricao()
+  const [painelSugestoes, setPainelSugestoesLocal] = useState(sugestoesAbertas)
+  const setPainelSugestoes = (v: boolean) => {
+    sugestoesAbertas = v
+    setPainelSugestoesLocal(v)
+  }
+  const ouvindo = !!transcricao.estado?.ligado
+  const [vistas, setVistas] = useState(0)
+  const ultimaSugestao = transcricao.estado?.sugestoes[0]?.id ?? 0
+  useEffect(() => {
+    if (ouvindo) {
+      sugestoesAbertas = true
+      setPainelSugestoesLocal(true)
+    }
+  }, [ouvindo])
+  useEffect(() => {
+    if (painelSugestoes) setVistas(ultimaSugestao)
+  }, [painelSugestoes, ultimaSugestao])
+  const novasSugestoes = painelSugestoes ? 0 : (transcricao.estado?.sugestoes.filter((s) => s.id > vistas).length ?? 0)
 
   useEffect(() => {
     const ler = () => api.versoesBiblia().then(setVersoes)
@@ -152,6 +177,19 @@ export function PaginaBiblia({ alvo, config, registrarTeclas }: { alvo: string; 
     [abrirCapitulo, mostrar, sigla],
   )
 
+  /** Sugestão clicada: abre o capítulo na passagem e (se tem versículo) mostra o primeiro; o passador segue. */
+  const usarSugestao = useCallback(
+    async (s: SugestaoVersiculo, mostrarAgora: boolean) => {
+      try {
+        const c = await abrirCapitulo(s.livro, s.capitulo, s.inicio, s.fim)
+        if (c && mostrarAgora && s.inicio) await mostrar(c, s.inicio)
+      } catch (e) {
+        setErro(mensagemDeErro(e))
+      }
+    },
+    [abrirCapitulo, mostrar],
+  )
+
   // enquanto digita, só prepara (não mostra); Enter mostra
   useEffect(() => {
     const t = setTimeout(() => void interpretar(texto, false).catch((e) => setErro(mensagemDeErro(e))), 220)
@@ -241,10 +279,28 @@ export function PaginaBiblia({ alvo, config, registrarTeclas }: { alvo: string; 
             { valor: 'texto', rotulo: <span className="flex items-center gap-1"><AlignLeft className="size-3.5" />Texto</span>, titulo: 'O capítulo para ler, e a busca por palavras' },
           ]}
         />
+        <Botao
+          ativo={painelSugestoes}
+          icone={Sparkles}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            setPainelSugestoes(!painelSugestoes)
+          }}
+          title="Sugestões de versículos ao vivo (o programa ouve o pregador e sugere)"
+          className="relative"
+        >
+          Sugestões
+          {ouvindo && <span className="size-2 animate-pulse rounded-full bg-ok" title="Ouvindo" />}
+          {novasSugestoes > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full bg-perigo px-1 text-center text-[11px] font-bold leading-5 text-white">{novasSugestoes}</span>
+          )}
+        </Botao>
         <Botao variante="fantasma" icone={Settings2} onClick={() => setPainelVersoes(true)} title="Importar versões" />
       </div>
       {erro && <div className="border-b border-borda bg-perigo/10 px-5 py-2 text-sm text-perigo-texto">{erro}</div>}
 
+      <div className="flex min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
       {modo === 'tabela' && (
         <div className="min-h-0 flex-1">
           <TabelaBiblia sigla={sigla} cap={cap} noAr={noAr} faixa={faixa} abrirCapitulo={abrirCapitulo} mostrar={mostrar} />
@@ -367,6 +423,19 @@ export function PaginaBiblia({ alvo, config, registrarTeclas }: { alvo: string; 
             </button>
           ))}
         </div>
+      </div>
+      </div>
+      {painelSugestoes && (
+        <PainelSugestoes
+          estado={transcricao.estado}
+          parcial={transcricao.parcial}
+          noAr={noAr}
+          rigor={config.transcricao.rigor}
+          aoMostrar={(s) => void usarSugestao(s, true)}
+          aoAbrir={(s) => void usarSugestao(s, false)}
+          aoFechar={() => setPainelSugestoes(false)}
+        />
+      )}
       </div>
     </div>
   )

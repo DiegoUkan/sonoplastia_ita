@@ -1,12 +1,16 @@
-/** Bíblia no celular: digite "jo 3 16", "sl 23" ou palavras; toque num versículo para mostrar. */
-import { Search } from 'lucide-react'
+/**
+ * Bíblia no celular: digite "jo 3 16", "sl 23" ou palavras; toque num versículo para mostrar. Em cima,
+ * as sugestões ao vivo (o programa ouve o pregador e sugere; tocar numa sugestão mostra).
+ */
+import { Search, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { LIVROS, type Livro } from '../../shared/biblia/livros'
 import { conteudoDoVersiculo } from '../../shared/biblia/mostrar'
 import { formatarReferencia, interpretarReferencia } from '../../shared/biblia/referencia'
 import type { ResultadoBuscaBiblia, VersaoBiblia, VersiculoTexto } from '../../shared/dados'
 import type { ConfigPublica } from '../../shared/remoto'
-import { Botao } from '../comando/ui'
+import { type EstadoTranscricao, ROTULO_LIGACAO, type SugestaoVersiculo } from '../../shared/transcricao'
+import { Botao, Interruptor } from '../comando/ui'
 import { api } from './cliente'
 
 export interface PassadorBiblia {
@@ -34,11 +38,15 @@ export function AbaBiblia({
   alvo,
   tentar,
   aoMudarPassador,
+  transcricao,
+  parcial,
 }: {
   config: ConfigPublica
   alvo: string
   tentar: (p: Promise<unknown>) => void
   aoMudarPassador: (p: PassadorBiblia | null) => void
+  transcricao: EstadoTranscricao | null
+  parcial: string
 }) {
   const [versoes, setVersoes] = useState<VersaoBiblia[] | null>(null)
   const [sigla, setSigla] = useState('')
@@ -162,10 +170,19 @@ export function AbaBiblia({
     if (c) await mostrar(c, inicio ?? c.versiculos[0]!.versiculo)
   }
 
+  /** Sugestão tocada: abre o capítulo e mostra o primeiro versículo (o passador segue pelos outros). */
+  const usarSugestao = async (s: SugestaoVersiculo) => {
+    setTexto('')
+    const c = await abrirCapitulo(s.livro, s.capitulo)
+    if (c && s.inicio) await mostrar(c, s.inicio)
+  }
+
   if (versoes === null) return <p className="py-3 text-center text-sm text-suave">Carregando…</p>
   if (!versoes.length) return <p className="rounded-xl border border-borda bg-painel p-4 text-sm text-suave">Nenhuma Bíblia importada (importe no computador, em Bíblia).</p>
 
   return (
+    <>
+    <SugestoesRemoto estado={transcricao} parcial={parcial} noAr={noAr} tentar={tentar} aoUsar={(s) => tentar(usarSugestao(s))} />
     <section className="flex flex-col gap-2 rounded-xl border border-borda bg-painel p-3">
       <form
         className="flex gap-2"
@@ -290,6 +307,85 @@ export function AbaBiblia({
           </div>
         </div>
       )}
+    </section>
+    </>
+  )
+}
+
+/** Sugestões ao vivo no celular: ligar/desligar a escuta e tocar numa sugestão para mostrar. */
+function SugestoesRemoto({
+  estado,
+  parcial,
+  noAr,
+  tentar,
+  aoUsar,
+}: {
+  estado: EstadoTranscricao | null
+  parcial: string
+  noAr: NoAr | null
+  tentar: (p: Promise<unknown>) => void
+  aoUsar: (s: SugestaoVersiculo) => void
+}) {
+  const [todas, setTodas] = useState(false)
+  if (!estado) return null
+  const ligado = estado.ligado
+  const lista = todas ? estado.sugestoes : estado.sugestoes.slice(0, 4)
+  const textoFase =
+    estado.fase === 'parado' ? 'Desligado' : estado.fase === 'ouvindo' ? 'Ouvindo o pregador' : estado.mensagem || (estado.fase === 'erro' ? 'Erro' : 'Preparando…')
+  const cor =
+    estado.fase === 'ouvindo' ? 'bg-ok' : estado.fase === 'erro' ? 'bg-perigo' : estado.fase === 'parado' ? 'bg-apagado' : 'animate-pulse bg-aviso'
+
+  return (
+    <section className="flex flex-col gap-2 rounded-xl border border-borda bg-painel p-3">
+      <div className="flex items-center gap-2">
+        <Sparkles className="size-4 text-destaque-texto" />
+        <span className="text-sm font-semibold">Sugestões ao vivo</span>
+        <span className="ml-auto flex items-center gap-2 text-xs text-suave">
+          Ouvir
+          <Interruptor ligado={ligado} aoMudar={(v) => tentar(api.ligarTranscricao(v))} rotulo="Ouvir o pregador e sugerir versículos" />
+        </span>
+      </div>
+      <div className="flex items-start gap-2 text-xs">
+        <span className={`mt-1 size-2 shrink-0 rounded-full ${cor}`} />
+        <span className={estado.fase === 'erro' ? 'text-perigo-texto' : 'text-suave'}>{textoFase}</span>
+      </div>
+      {estado.aviso && <p className="rounded bg-aviso/15 px-2 py-1 text-xs text-aviso-texto">{estado.aviso}</p>}
+      {ligado && (parcial || estado.falas.length > 0) && (
+        <p className="line-clamp-2 rounded-lg bg-painel-2 px-2 py-1.5 text-xs text-suave">
+          {parcial ? <i className="text-texto">{parcial}</i> : estado.falas[estado.falas.length - 1]}
+        </p>
+      )}
+      {lista.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {lista.map((s) => {
+            const ativo = !!noAr && noAr.livro === s.livro && noAr.capitulo === s.capitulo && s.inicio !== null && noAr.versiculo >= s.inicio && noAr.versiculo <= (s.fim ?? s.inicio)
+            const rotulo = s.origem === 'citada' ? 'Dita' : (ROTULO_LIGACAO[s.ligacao] ?? 'IA')
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => aoUsar(s)}
+                className={`rounded-lg border px-2.5 py-2 text-left active:bg-hover ${ativo ? 'border-destaque bg-destaque/12' : 'border-borda bg-painel-2'}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${s.origem === 'citada' ? 'bg-ok/12 text-ok-texto' : 'bg-destaque/12 text-destaque-texto'}`}>{rotulo}</span>
+                  <b className="min-w-0 truncate text-sm">{s.referencia}</b>
+                  <span className="ml-auto shrink-0 text-[10px] tabular-nums text-apagado">
+                    {new Date(s.hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                {s.previa && <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-suave">{s.previa}</p>}
+              </button>
+            )
+          })}
+          {estado.sugestoes.length > 4 && (
+            <Botao tamanho="sm" variante="fantasma" onClick={() => setTodas(!todas)}>
+              {todas ? 'Mostrar menos' : `Ver todas (${estado.sugestoes.length})`}
+            </Botao>
+          )}
+        </div>
+      )}
+      {ligado && !lista.length && <p className="text-xs text-apagado">Quando o pregador citar ou ler um texto, as sugestões aparecem aqui.</p>}
     </section>
   )
 }

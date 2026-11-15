@@ -16,7 +16,8 @@ interface PropJson {
   description?: string
   minimum?: number
   maximum?: number
-  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'versao-biblia' | 'pasta' | 'segredo'
+  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'microfone' | 'versao-biblia' | 'pasta' | 'segredo'
+  'x-placeholder'?: string
   'x-passo'?: number
   'x-opcoes'?: Record<string, string>
 }
@@ -94,14 +95,16 @@ function Controle({ prop, valor, aoMudar }: { prop: PropJson; valor: unknown; ao
       return <ControleArquivoImagem valor={valor as string | null} aoMudar={aoMudar} />
     case 'dispositivo-audio':
       return <ControleDispositivoAudio valor={String(valor ?? '')} aoMudar={aoMudar} />
+    case 'microfone':
+      return <ControleDispositivoAudio valor={String(valor ?? '')} aoMudar={aoMudar} tipo="audioinput" />
     case 'versao-biblia':
       return <ControleVersaoBiblia valor={String(valor ?? '')} aoMudar={aoMudar} />
     case 'pasta':
       return <ControlePasta valor={String(valor ?? '')} aoMudar={aoMudar} titulo={prop.title ?? 'Escolher pasta'} />
     case 'segredo':
-      return <ControleSegredo valor={String(valor ?? '')} aoMudar={aoMudar} />
+      return <ControleSegredo valor={String(valor ?? '')} aoMudar={aoMudar} exemplo={prop['x-placeholder']} />
     default:
-      return <ControleTexto valor={String(valor ?? '')} aoMudar={aoMudar} />
+      return <ControleTexto valor={String(valor ?? '')} aoMudar={aoMudar} exemplo={prop['x-placeholder']} />
   }
 }
 
@@ -125,13 +128,13 @@ function Lista({ valor, aoMudar, opcoes }: { valor: string; aoMudar: (v: string)
   )
 }
 
-function ControleTexto({ valor, aoMudar, largura = 'w-72' }: { valor: string; aoMudar: (v: string) => void; largura?: string }) {
+function ControleTexto({ valor, aoMudar, largura = 'w-72', exemplo }: { valor: string; aoMudar: (v: string) => void; largura?: string; exemplo?: string }) {
   const [v, setV] = useRascunho(valor, aoMudar)
-  return <input className={`${classeEntrada} ${largura}`} value={v} onChange={(e) => setV(e.target.value)} />
+  return <input className={`${classeEntrada} ${largura}`} value={v} placeholder={exemplo} onChange={(e) => setV(e.target.value)} />
 }
 
-/** Texto escondido (link com chave): só aparece ao clicar em "mostrar". */
-function ControleSegredo({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+/** Texto escondido (link com chave, chave de API): só aparece ao clicar em "mostrar". */
+function ControleSegredo({ valor, aoMudar, exemplo = 'https://…/manifest.json' }: { valor: string; aoMudar: (v: string) => void; exemplo?: string }) {
   const [v, setV] = useRascunho(valor, aoMudar)
   const [ver, setVer] = useState(false)
   return (
@@ -141,7 +144,7 @@ function ControleSegredo({ valor, aoMudar }: { valor: string; aoMudar: (v: strin
         type={ver ? 'text' : 'password'}
         autoComplete="off"
         spellCheck={false}
-        placeholder="https://…/manifest.json"
+        placeholder={exemplo}
         value={v}
         onChange={(e) => setV(e.target.value.trim())}
       />
@@ -237,19 +240,21 @@ function ControlePasta({ valor, aoMudar, titulo }: { valor: string; aoMudar: (v:
   )
 }
 
-function ControleDispositivoAudio({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+/** Saídas de som (padrão) ou entradas (microfones e entrada de linha). */
+function ControleDispositivoAudio({ valor, aoMudar, tipo = 'audiooutput' }: { valor: string; aoMudar: (v: string) => void; tipo?: 'audiooutput' | 'audioinput' }) {
   const [dispositivos, setDispositivos] = useState<MediaDeviceInfo[]>([])
   useEffect(() => {
     const ler = () =>
       navigator.mediaDevices
         .enumerateDevices()
-        .then((d) => setDispositivos(d.filter((x) => x.kind === 'audiooutput' && x.deviceId !== 'default' && x.deviceId !== 'communications')))
+        .then((d) => setDispositivos(d.filter((x) => x.kind === tipo && x.deviceId !== 'default' && x.deviceId !== 'communications')))
         .catch(() => setDispositivos([]))
     ler()
     navigator.mediaDevices.addEventListener('devicechange', ler)
     return () => navigator.mediaDevices.removeEventListener('devicechange', ler)
-  }, [])
-  const opcoes = [{ valor: '', rotulo: 'Padrão do Windows' }, ...dispositivos.map((d, i) => ({ valor: d.deviceId, rotulo: d.label || `Saída de som ${i + 1}` }))]
+  }, [tipo])
+  const nome = tipo === 'audioinput' ? 'Entrada de áudio' : 'Saída de som'
+  const opcoes = [{ valor: '', rotulo: 'Padrão do Windows' }, ...dispositivos.map((d, i) => ({ valor: d.deviceId, rotulo: d.label || `${nome} ${i + 1}` }))]
   if (valor && !dispositivos.some((d) => d.deviceId === valor)) opcoes.push({ valor, rotulo: 'Dispositivo desconectado' })
   return <Lista valor={valor} aoMudar={aoMudar} opcoes={opcoes} />
 }

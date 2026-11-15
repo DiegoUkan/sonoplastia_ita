@@ -43,6 +43,7 @@ import { RepositorioLiturgias } from './liturgia/repositorio'
 import { RepositorioMusicas } from './musicas/repositorio'
 import { ligarControleRemoto } from './remoto/ligar'
 import { GerenciadorTelas } from './telas/gerenciador'
+import { ligarTranscricao } from './transcricao/ligar'
 
 const AUTOTESTE = process.argv.includes('--autoteste')
 const DEV = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL
@@ -66,7 +67,7 @@ if (!AUTOTESTE && !app.requestSingleInstanceLock()) {
   })
 }
 
-type Pagina = 'comando' | 'saida' | 'audio' | 'sonda'
+type Pagina = 'comando' | 'saida' | 'audio' | 'sonda' | 'escuta'
 
 function preferenciasWeb(): WebPreferences {
   return {
@@ -131,11 +132,11 @@ function aplicarTema(cfg: Config): void {
   janelaComando?.setBackgroundColor(corDoTema(cfg))
 }
 
-/** Janela oculta (trilha de áudio, sonda): nunca aparece. */
-function criarJanelaOculta(pagina: Pagina): BrowserWindow {
+/** Janela oculta (trilha de áudio, sonda, escuta do microfone): nunca aparece. */
+function criarJanelaOculta(pagina: Pagina, query: Record<string, string> = {}): BrowserWindow {
   const win = new BrowserWindow({ show: false, width: 640, height: 360, skipTaskbar: true, webPreferences: preferenciasWeb() })
   protegerNavegacao(win)
-  carregarPagina(win, pagina)
+  carregarPagina(win, pagina, query)
   return win
 }
 
@@ -186,6 +187,13 @@ async function iniciar(): Promise<void> {
   const midias = new BibliotecaMidias(db, { base: caminhos.midias, miniaturas: caminhos.miniaturas }, sonda, ffmpeg)
   const musicas = new RepositorioMusicas(db)
   const biblia = new RepositorioBiblia(db)
+  // sugestões de versículos ao vivo (a escuta do microfone só abre quando o operador liga)
+  const transcricao = ligarTranscricao({
+    armazem,
+    biblia,
+    criarJanelaEscuta: (mic) => criarJanelaOculta('escuta', mic ? { mic } : {}),
+    comando: () => janelaComando,
+  })
   // scripts do PowerShell que transformam slides em imagens (no instalador: resources\scripts)
   const pastaScripts = app.isPackaged ? join(process.resourcesPath, 'scripts') : join(app.getAppPath(), 'scripts', 'powershell')
   const apresentacoes = new BibliotecaApresentacoes(
@@ -372,6 +380,7 @@ async function iniciar(): Promise<void> {
     const c = armazem.obter()
     if (!c.biblia.versaoPadrao) armazem.salvar({ ...c, biblia: { ...c.biblia, versaoPadrao: sigla.trim().toUpperCase() } })
     transmitir(CANAIS.biblia)
+    transcricao.bibliaMudou()
     log.info(`Bíblia ${sigla} importada: ${n} versículos`)
     return n
   }
@@ -620,6 +629,7 @@ async function iniciar(): Promise<void> {
     musicas,
     midias,
     biblia,
+    transcricao,
     abrirMusica,
     comando: () => janelaComando,
     pastaPaginas: join(__dirname, '../renderer'),
@@ -664,6 +674,7 @@ async function iniciar(): Promise<void> {
       remoto,
       liturgias,
       executorLiturgia: execLit,
+      transcricao,
       pasta: process.env.SONOPLASTIA_AUTOTESTE || join(caminhos.base, 'autoteste'),
     })
     encerrando = true
