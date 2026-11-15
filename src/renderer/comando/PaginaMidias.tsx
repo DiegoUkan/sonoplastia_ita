@@ -2,7 +2,7 @@
  * Página "Mídias": biblioteca de vídeos, imagens e áudios. Importa pelo botão ou arrastando arquivos.
  * A aba "Do site" mostra o que chega sozinho do site da igreja.
  */
-import { AudioLines, CloudDownload, Film, ImageIcon, LoaderCircle, Pencil, Play, Plus, Search, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
+import { AudioLines, CloudDownload, Film, ImageIcon, LoaderCircle, Pencil, Play, Plus, RefreshCw, Search, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { Midia, ResultadoImportacao } from '../../shared/dados'
 import { diaMes, type EstadoSite } from '../../shared/site'
@@ -60,6 +60,20 @@ export function PaginaMidias({ alvo, site }: { alvo: string; site: EstadoSite | 
 
   const acao = (f: () => Promise<void>) => f().catch((e) => setAviso(mensagemDeErro(e)))
 
+  // o site também é conferido sozinho a cada 5 minutos; o botão é para não esperar
+  const [atualizandoSite, setAtualizandoSite] = useState(false)
+  const conferindoSite = atualizandoSite || !!site?.verificando
+  const atualizarSite = async () => {
+    setAtualizandoSite(true)
+    try {
+      await api.atualizarSite()
+    } catch (e) {
+      setAviso(mensagemDeErro(e))
+    } finally {
+      setAtualizandoSite(false)
+    }
+  }
+
   return (
     <div
       className="relative flex h-full flex-col"
@@ -98,7 +112,18 @@ export function PaginaMidias({ alvo, site }: { alvo: string; site: EstadoSite | 
             <input className={`${classeEntrada} w-64 pl-8`} placeholder="Buscar pelo nome" value={busca} onChange={(e) => setBusca(e.target.value)} />
           </div>
         )}
-        <Botao variante="primario" icone={Plus} className="ml-auto" onClick={() => void importar()}>
+        {site?.configurado && (
+          <Botao
+            className="ml-auto"
+            disabled={conferindoSite}
+            onClick={() => void atualizarSite()}
+            title="Confere agora se o site tem arquivos novos (ele também confere sozinho a cada 5 minutos)"
+          >
+            <RefreshCw className={`size-4 ${conferindoSite ? 'animate-spin' : ''}`} />
+            {conferindoSite ? 'Conferindo o site…' : 'Atualizar do site'}
+          </Botao>
+        )}
+        <Botao variante="primario" icone={Plus} className={site?.configurado ? '' : 'ml-auto'} onClick={() => void importar()}>
           Importar…
         </Botao>
       </div>

@@ -1,7 +1,7 @@
 /**
  * Aba "Do site" da página Mídias: o que o site da igreja tem para este sábado, o que já chegou na
- * biblioteca e como foi a última conferida. Os arquivos chegam sozinhos (a cada 5 minutos); aqui dá
- * para conferir agora e marcar o que chegou como visto.
+ * biblioteca e como foi a última conferida. Os arquivos chegam sozinhos (a cada 5 minutos); o botão
+ * "Atualizar do site" fica na barra da página, ao lado do "Importar…".
  */
 import {
   AudioLines,
@@ -14,7 +14,6 @@ import {
   ImageIcon,
   LoaderCircle,
   Presentation,
-  RefreshCw,
   TriangleAlert,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -74,21 +73,8 @@ function hora(iso: string | null): string {
 
 export function PainelSite({ estado }: { estado: EstadoSite | null }) {
   const [aviso, setAviso] = useState<string | null>(null)
-  const [atualizando, setAtualizando] = useState(false)
 
   if (!estado) return <div className="p-5 text-sm text-suave">Carregando…</div>
-
-  const atualizar = async () => {
-    setAtualizando(true)
-    setAviso(null)
-    try {
-      await api.atualizarSite()
-    } catch (e) {
-      setAviso(mensagemDeErro(e))
-    } finally {
-      setAtualizando(false)
-    }
-  }
 
   if (!estado.configurado) {
     return (
@@ -105,7 +91,6 @@ export function PainelSite({ estado }: { estado: EstadoSite | null }) {
   const grupos = (['automatico', 'fixo', 'enviado'] as CategoriaSite[])
     .map((c) => ({ categoria: c, itens: estado.itens.filter((i) => i.categoria === c) }))
     .filter((g) => g.itens.length)
-  const ocupado = atualizando || estado.verificando
 
   return (
     <div className="flex flex-col gap-4">
@@ -124,6 +109,7 @@ export function PainelSite({ estado }: { estado: EstadoSite | null }) {
           <div className="text-xs text-suave">
             {estado.ultimoSucesso ? `Última conferida ${hora(estado.ultimoSucesso)}` : 'Ainda não conferiu'}
             {estado.ativo && estado.proximaVerificacao && !estado.verificando ? ` · próxima ${hora(estado.proximaVerificacao)}` : ''}
+            {estado.ativo ? ' · confere sozinho a cada 5 minutos' : ' · ligue em Configurações → Site da igreja'}
           </div>
         </div>
         {estado.novos > 0 && (
@@ -131,9 +117,6 @@ export function PainelSite({ estado }: { estado: EstadoSite | null }) {
             Marcar {estado.novos} como vistos
           </Botao>
         )}
-        <Botao tamanho="sm" icone={ocupado ? LoaderCircle : RefreshCw} disabled={ocupado} onClick={() => void atualizar()}>
-          Atualizar agora
-        </Botao>
       </div>
 
       {estado.erro && <Faixa tom="perigo" texto={estado.erro} />}

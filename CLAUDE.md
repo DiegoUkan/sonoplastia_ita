@@ -249,7 +249,8 @@ saída).
     só se o manifesto veio sem `warnings`. O que o operador tirar da biblioteca não volta (a versão nova de uma série
     volta e a mídia sai da lixeira).
   - "Novo": selo nos cartões, contador no menu Mídias e na aba **Mídias → Do site** (status de cada arquivo, última
-    conferida, "Atualizar agora", "Marcar como vistos"); ir ao ar também tira o "novo". Configurações → **Site da
+    e próxima conferida, "Marcar como vistos"); ir ao ar também tira o "novo". O botão **"Atualizar do site"** fica
+    na barra da página Mídias, ao lado do "Importar…" (pedido do usuário: dentro da aba ficava escondido). Configurações → **Site da
     igreja** (ligar e o endereço, num campo escondido, `x-ui: 'segredo'`). Barra de baixo mostra o download.
   - Banco: migração 4, tabela `site_itens`. Miniaturas das mídias agora têm a versão no nome (`<id>-<versão>.jpg`).
 
