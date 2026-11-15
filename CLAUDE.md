@@ -222,6 +222,36 @@ saída).
     o motor não acha próximo (`proximoUrl` nulo; slides ocultos contam).
   - Autoteste: captura `9b-ultimo-slide` (último slide do PDF) e `SONOPLASTIA_AUTOTESTE_PULAR=pptx` (só o
     PDF, sem abrir o PowerPoint).
+- **2026-11-14 ~18h15: commit `70d04b8` (Fase 6 e os pedidos de 14/11 à tarde) enviado ao GitHub** (o "nada
+  commitado" das duas entradas acima ficou para trás).
+- **2026-11-15: projeto clonado num PC de desenvolvimento** (`E:\Pastas\Projetos\sonoplastia-ita`; Node 26, sem
+  `C:\Sonoplastia`, sem Holyrics e sem Louvor JA: os 6 testes com dados reais pulam sozinhos).
+- **2026-11-15: Fase 7 (arquivos do site) implementada pelo catálogo `manifest.json`, sem senha.** Testado com Vitest
+  (175; 25 novos em `tests/site.test.ts`, contra um site de mentira local com chave falsa), typecheck, build e uma
+  leitura do manifesto real (só o JSON; nada baixado; 8 itens lidos sem erro). Depois, o programa foi aberto neste
+  PC com uma pasta de dados de teste e o endereço real: baixou só a imagem fixa (os semanais eram de 14/11, sábado de
+  referência 21/11), telas conferidas por captura (Do site, selos, Configurações, aviso na liturgia), sem erros no
+  console e sem a chave no log. **Ainda não rodou no PC da igreja.** Enviado ao GitHub em 2026-11-15. Feito:
+  - O site ganhou um catálogo só de leitura (`manifest.json`, schema_version 1) num endereço com uma chave aleatória:
+    não precisa de senha, cookie nem login. **O modelo antigo (senha da igreja + `safeStorage` + ler as páginas do
+    site) nunca chegou a ser implementado** (só estava no plano) e foi trocado por este.
+  - `src/main/site/manifesto.ts` (leitura e regras puras: versão 1, item estranho vira aviso, nome de arquivo seguro,
+    mesma origem, chave escondida no log), `baixar.ts` (streaming para `.part` em `C:\Sonoplastia\cache\site`, retomada
+    com Range + If-Range/ETag, desiste após 60 s sem dados, confere `size_bytes`), `sincronizador.ts` (a passada).
+  - A cada `refresh_after_seconds` (300 s) lê o manifesto; baixa só `available` + `valid_for_sabbath` + `download_url`
+    do mesmo site; vídeo/imagem/áudio vão para Mídias (o arquivo é MOVIDO, sem cópia dupla), .pptx/.ppsx/.pdf para
+    Apresentações, o resto fica "Tipo não usado". Falha: tenta de novo em 30 s, 1 min, 2 min… até 5 min.
+  - **Séries semanais e fixos = uma mídia só** (`substituirArquivo`): a versão nova troca o arquivo e mantém o id, então
+    os itens da liturgia que usam a série já pegam o vídeo novo; o antigo é apagado. Com a mídia no ar, a troca espera.
+  - Liturgia: item de série semanal cujo arquivo não é deste sábado fica com aviso amarelo na lista e **não entra no
+    ar** pela liturgia (erro explicando; pela página Mídias ainda dá). Envios e fixos não bloqueiam.
+  - **Envios** entram como mídias novas; quando `expires_at` passa (ou somem do site), vão para a lixeira de Mídias,
+    só se o manifesto veio sem `warnings`. O que o operador tirar da biblioteca não volta (a versão nova de uma série
+    volta e a mídia sai da lixeira).
+  - "Novo": selo nos cartões, contador no menu Mídias e na aba **Mídias → Do site** (status de cada arquivo, última
+    conferida, "Atualizar agora", "Marcar como vistos"); ir ao ar também tira o "novo". Configurações → **Site da
+    igreja** (ligar e o endereço, num campo escondido, `x-ui: 'segredo'`). Barra de baixo mostra o download.
+  - Banco: migração 4, tabela `site_itens`. Miniaturas das mídias agora têm a versão no nome (`<id>-<versão>.jpg`).
 
 ## Decisões
 
@@ -247,8 +277,9 @@ saída).
   origem `LJA-<id>` e não sobrescreve edições locais.
 - Bíblia: JSON no formato `damarals/biblias` (ARA e NVI já existem no projeto de transcrição), busca
   FTS5 no SQLite. Sempre mostrar a sigla da versão.
-- Sincronização com o site: porta do `sonoplastia_sync.py` (mesmas regras), sem o truque do nome fixo; a
-  liturgia aponta para a série.
+- **Arquivos do site: pelo catálogo `manifest.json`** (contrato em "Arquivos do site", abaixo), não pelo
+  `status.json` antigo nem pelas páginas com senha. A liturgia aponta para a série porque a série é UMA mídia que
+  troca de arquivo.
 - Dados em `C:\Sonoplastia\` (fora do AppData por causa do contêiner MSIX do Claude, e sem espaços no
   caminho).
 - Configurações definidas num esquema único (`zod`) que gera a tela de configurações.
@@ -336,11 +367,21 @@ saída).
   como saída.
 - Teclas que precisam passar na frente da página (pergunta da versão, painel da letra) usam
   `addEventListener('keydown', …, true)` + `stopImmediatePropagation` (`useTeclasNaFrente`).
-- **Site da sonoplastia agora pede login** (a partir de 2026-11-14 à tarde, `status.json` dá 401; a
-  sincronização antiga do Holyrics deixa de funcionar). O usuário mandou a senha no chat: o Claude **não
-  entra com ela** (regra de segurança) nem a grava no código/GitHub. Caminho combinado: o usuário entra no
-  site no navegador do painel do Claude e o Claude só lê as páginas para aprender a estrutura; no
-  programa, a senha será digitada pelo usuário em Configurações (guardar com `safeStorage`).
+- **Arquivos do site (2026-11-15).** O site de envio e o editor continuam com senha, mas o programa não usa
+  nada disso: lê o catálogo `manifest.json` por GET, sem credencial. O endereço tem uma **chave de leitura**:
+  fica só no `config.json` local (Configurações → Site da igreja), **nunca no código, nos testes, no GitHub,
+  neste arquivo nem no log** (`ocultarChave`). O controle remoto não recebe essa opção (`configPublica`). Link
+  vazado: pedir outro à equipe do site e colar no programa.
+  - Contrato (schema_version 1): `sabbath_date` (sábado de referência; vira domingo 0h), `refresh_after_seconds`,
+    `items[]` com `id` estável (`automatico-avisos|provai|informativo|saude`, `fixo-*`, `enviado-<id>`),
+    `category`, `filename` (só nome), `size_bytes`, `revision` (opaca, comparar por igualdade), `available`,
+    `valid_for_sabbath`, `media_date`, `expires_at`, `download_url`; e `warnings[]`. Outra versão: para tudo e avisa.
+  - Só vai para a biblioteca o que tem `available` + `valid_for_sabbath` + `download_url` do mesmo site. "Deste
+    sábado" no programa = `media_date` do arquivo daqui igual ao próximo sábado (fixo vale sempre).
+  - `warnings` não vazio (ou item ilegível) = nenhuma limpeza (falha de fonte não é ordem de apagar). Só sai o que o
+    programa baixou (`gerenciada`); o resto é do operador.
+  - A troca de arquivo de uma série nunca acontece com ela no ar (`emUsoNoMotor`: saídas, trilha de áudio, apresentação).
+  - Mesmo conteúdo já na biblioteca (sha256): liga o item do site à mídia existente sem tomar conta dela.
 
 ## PC da igreja (onde o programa vai rodar)
 
@@ -411,8 +452,9 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
 - `..\Integração holyrics\` — o que existe hoje em produção com o Holyrics:
   - `louvorja\lja.py`: leitura do banco do Louvor JA (base do importador de músicas).
   - `louvorja\player_sincronia.py`: troca de slides pelo tempo do áudio (antecipação de 250 ms).
-  - `sonoplastia_sync.py`: download dos vídeos do sábado a partir do `status.json` do site.
-  - `prompt-site-sonoplastia.md`: contrato do `status.json` e do futuro `manifest.json` do site.
+  - `sonoplastia_sync.py`: download dos vídeos do sábado a partir do `status.json` do site (o `status.json` passou a
+    dar 401; este programa usa o `manifest.json`, ver Decisões).
+  - `prompt-site-sonoplastia.md`: o pedido original do `manifest.json` (o contrato que valeu é o de Decisões).
   - `holyrics-config.json` tem token do Holyrics: não copiar para este projeto.
 - `..\Transcrição_tempo_real\` — sugestões de versículos ao vivo (Python, FastAPI, SSE em `/eventos`).
   Integração prevista para depois (`PLANO.md` §5.11). Tem o parser de referências e a tabela de livros.
@@ -448,20 +490,16 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
    pelo `abrir.cmd`): relógio no canto do Palco; página Ferramentas (temporizador no Palco, mensagem,
    QR, sorteio); Bíblia → Tabela; música só com a letra (painel grande); item de música "Escolher na
    hora"; volume (vídeo → áudio não volta ao máximo); botão **Luzes** (testar um cenário **com o
-   usuário olhando**, fora do culto). Commit da Fase 6 (o usuário decide).
+   usuário olhando**, fora do culto). (Commit da Fase 6 feito: `70d04b8`.)
 8a. **Conferir nos projetores** os pedidos de 14/11 à tarde: próximo trecho e linha brancos no Palco;
    imagem mais clara com sombra no texto no Público (se precisar, ajustar "Escurecer a imagem…" em Telas);
    "ÚLTIMO SLIDE" no Palco no fim de uma apresentação. O relógio no canto do Palco (sup-dir) cobre o canto
    do próximo slide/da caixa vermelha: se incomodar, mudar a posição dele em Ferramentas.
-9. **Fase 7 — sincronização com o site** (pedido de 2026-11-14): integrar os arquivos de
-   `itaqui.diegoukan.com` (`#automaticos` e `#arquivos`) à biblioteca de Mídias: arquivos novos marcados
-   "novos"; **Provai e Vede, Informativo Mundial das Missões e Informativo da Comunicação substituem os
-   antigos** (os antigos saem) e **atualizam sozinhos os itens da liturgia**; os outros entram como
-   "novos"; se o sonoplasta apagar um importado, vai para "deletados" e **não é importado de novo**;
-   intervalo de atualização a critério do Claude (sugestão: a cada 10 min de sexta 0h a sábado 12h, e
-   1 h no resto da semana, mais um botão "Atualizar agora"). **Bloqueio:** o site pede login; falta o
-   usuário entrar no navegador do painel para o Claude ler a estrutura (ver Decisões). Base: o
-   `sonoplastia_sync.py` e o `prompt-site-sonoplastia.md` em `..\Integração holyrics\`.
+9. ~~**Fase 7 — arquivos do site**~~ código pronto em 2026-11-15 (ver Status). **Falta no PC da igreja:**
+   abrir pelo `abrir.cmd`, colar o endereço do manifesto em Configurações → Site da igreja (o usuário tem o link no
+   documento "Integração de mídias" da equipe do site) e olhar Mídias → Do site. Numa sexta, conferir que os vídeos
+   da semana chegam, que o item "Provai e Vede" da liturgia passa a tocar o novo e que o Vida e Saúde antigo não é
+   baixado (818 MB, `valid_for_sabbath: false`). (Commit e envio ao GitHub da Fase 7 feitos em 2026-11-15.)
 10. (Depois) Modo PowerPoint com animações, se fizer falta.
 
 ## Pendências conhecidas
@@ -489,6 +527,9 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
   minimizado (fica o botão "Letra no ar").
   O controle remoto do celular ainda não mostra nem passa a liturgia. Sem desfazer: excluir item ou seção
   é na hora (a seção com itens pede confirmação).
+- Site: apresentações (.pdf/.pptx) que vêm de envios não saem sozinhas quando o prazo acaba (Apresentações não tem
+  lixeira; excluir lá é para sempre). Sem limite de banda nos downloads. Um item de mídia da liturgia guarda o tipo
+  (`midiaTipo`) de quando foi posto: se a série trocar de vídeo para imagem, o rótulo do item fica desatualizado.
 
 ## Perguntas em aberto
 

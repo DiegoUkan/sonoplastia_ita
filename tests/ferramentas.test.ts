@@ -289,6 +289,7 @@ const midia = (id: number, tipo: Midia['tipo'], arquivo: string): Midia => ({
   progresso: null,
   criadoEm: '',
   excluida: false,
+  site: null,
 })
 const MIDIAS: Record<number, Midia> = { 7: midia(7, 'video', 'provai.mp4'), 8: midia(8, 'audio', 'fundo.mp3') }
 

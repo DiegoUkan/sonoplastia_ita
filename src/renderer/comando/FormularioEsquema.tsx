@@ -2,7 +2,7 @@
  * Formulário gerado a partir de um esquema zod (via JSON Schema). Cada opção nova acrescentada em
  * src/shared/config.ts aparece aqui sem código extra.
  */
-import { FolderOpen, ImageIcon, X } from 'lucide-react'
+import { Eye, EyeOff, FolderOpen, ImageIcon, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import type { VersaoBiblia } from '../../shared/dados'
@@ -16,7 +16,7 @@ interface PropJson {
   description?: string
   minimum?: number
   maximum?: number
-  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'versao-biblia' | 'pasta'
+  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'versao-biblia' | 'pasta' | 'segredo'
   'x-passo'?: number
   'x-opcoes'?: Record<string, string>
 }
@@ -98,6 +98,8 @@ function Controle({ prop, valor, aoMudar }: { prop: PropJson; valor: unknown; ao
       return <ControleVersaoBiblia valor={String(valor ?? '')} aoMudar={aoMudar} />
     case 'pasta':
       return <ControlePasta valor={String(valor ?? '')} aoMudar={aoMudar} titulo={prop.title ?? 'Escolher pasta'} />
+    case 'segredo':
+      return <ControleSegredo valor={String(valor ?? '')} aoMudar={aoMudar} />
     default:
       return <ControleTexto valor={String(valor ?? '')} aoMudar={aoMudar} />
   }
@@ -126,6 +128,26 @@ function Lista({ valor, aoMudar, opcoes }: { valor: string; aoMudar: (v: string)
 function ControleTexto({ valor, aoMudar, largura = 'w-72' }: { valor: string; aoMudar: (v: string) => void; largura?: string }) {
   const [v, setV] = useRascunho(valor, aoMudar)
   return <input className={`${classeEntrada} ${largura}`} value={v} onChange={(e) => setV(e.target.value)} />
+}
+
+/** Texto escondido (link com chave): só aparece ao clicar em "mostrar". */
+function ControleSegredo({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+  const [v, setV] = useRascunho(valor, aoMudar)
+  const [ver, setVer] = useState(false)
+  return (
+    <>
+      <input
+        className={`${classeEntrada} w-72`}
+        type={ver ? 'text' : 'password'}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="https://…/manifest.json"
+        value={v}
+        onChange={(e) => setV(e.target.value.trim())}
+      />
+      <Botao tamanho="sm" variante="fantasma" icone={ver ? EyeOff : Eye} onClick={() => setVer(!ver)} title={ver ? 'Esconder' : 'Mostrar'} />
+    </>
+  )
 }
 
 function ControleNumero({ prop, valor, aoMudar }: { prop: PropJson; valor: number; aoMudar: (v: number) => void }) {

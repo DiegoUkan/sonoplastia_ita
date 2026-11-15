@@ -1,14 +1,19 @@
-/** Página "Mídias": biblioteca de vídeos, imagens e áudios. Importa pelo botão ou arrastando arquivos. */
-import { AudioLines, Film, ImageIcon, LoaderCircle, Pencil, Play, Plus, Search, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
+/**
+ * Página "Mídias": biblioteca de vídeos, imagens e áudios. Importa pelo botão ou arrastando arquivos.
+ * A aba "Do site" mostra o que chega sozinho do site da igreja.
+ */
+import { AudioLines, CloudDownload, Film, ImageIcon, LoaderCircle, Pencil, Play, Plus, Search, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { Midia, ResultadoImportacao } from '../../shared/dados'
+import { diaMes, type EstadoSite } from '../../shared/site'
 import { formatarTempo } from '../compartilhado/Camadas'
 import { api } from '../compartilhado/ganchos'
 import { mensagemDeErro, mostrarMidia } from './acoes'
 import { arquivosDoArraste, iniciarArraste } from './arrastar'
+import { PainelSite } from './PainelSite'
 import { Botao, classeEntrada, Segmentado } from './ui'
 
-type Filtro = 'todos' | 'video' | 'imagem' | 'audio' | 'lixeira'
+type Filtro = 'todos' | 'video' | 'imagem' | 'audio' | 'site' | 'lixeira'
 
 const ICONES = { video: Film, imagem: ImageIcon, audio: AudioLines }
 
@@ -26,7 +31,7 @@ function resumoImportacao(r: ResultadoImportacao): string {
   return partes.join(' · ') || 'Nada importado.'
 }
 
-export function PaginaMidias({ alvo }: { alvo: string }) {
+export function PaginaMidias({ alvo, site }: { alvo: string; site: EstadoSite | null }) {
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [busca, setBusca] = useState('')
   const [lista, setLista] = useState<Midia[]>([])
@@ -35,6 +40,7 @@ export function PaginaMidias({ alvo }: { alvo: string }) {
   const [renomeando, setRenomeando] = useState<{ id: number; nome: string } | null>(null)
 
   const carregar = useCallback(async () => {
+    if (filtro === 'site') return
     setLista(await api.listarMidias({ tipo: filtro === 'lixeira' ? 'todos' : filtro, busca, lixeira: filtro === 'lixeira' }))
   }, [filtro, busca])
   useEffect(() => {
@@ -82,13 +88,16 @@ export function PaginaMidias({ alvo }: { alvo: string }) {
             { valor: 'video', rotulo: 'Vídeos' },
             { valor: 'imagem', rotulo: 'Imagens' },
             { valor: 'audio', rotulo: 'Áudios' },
+            { valor: 'site', rotulo: site?.novos ? `Do site (${site.novos} novo${site.novos > 1 ? 's' : ''})` : 'Do site' },
             { valor: 'lixeira', rotulo: 'Lixeira' },
           ]}
         />
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-apagado" />
-          <input className={`${classeEntrada} w-64 pl-8`} placeholder="Buscar pelo nome" value={busca} onChange={(e) => setBusca(e.target.value)} />
-        </div>
+        {filtro !== 'site' && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-apagado" />
+            <input className={`${classeEntrada} w-64 pl-8`} placeholder="Buscar pelo nome" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          </div>
+        )}
         <Botao variante="primario" icone={Plus} className="ml-auto" onClick={() => void importar()}>
           Importar…
         </Botao>
@@ -103,7 +112,9 @@ export function PaginaMidias({ alvo }: { alvo: string }) {
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        {lista.length === 0 ? (
+        {filtro === 'site' ? (
+          <PainelSite estado={site} />
+        ) : lista.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-suave">
             <Film className="size-10 text-apagado" />
             <p className="text-sm">
@@ -136,6 +147,14 @@ export function PaginaMidias({ alvo }: { alvo: string }) {
                     {m.duracao ? (
                       <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 text-[11px] tabular-nums text-white">{formatarTempo(m.duracao)}</span>
                     ) : null}
+                    {m.site?.novo && !m.excluida && (
+                      <span className="absolute left-1 top-1 rounded bg-destaque px-1.5 text-[10px] font-bold uppercase tracking-wide text-sobre-destaque">Novo</span>
+                    )}
+                    {m.site && !m.site.atual && m.site.aviso && !m.excluida && (
+                      <span className="absolute right-1 top-1 flex items-center gap-1 rounded bg-aviso px-1.5 text-[10px] font-semibold text-sobre-aviso" title={m.site.aviso}>
+                        <TriangleAlert className="size-3" /> Outra semana
+                      </span>
+                    )}
                     {m.situacao === 'analisando' && <Faixa icone={LoaderCircle} texto="Analisando…" />}
                     {m.situacao === 'convertendo' && <Faixa icone={LoaderCircle} texto={`Convertendo ${m.progresso ? Math.round(m.progresso * 100) + '%' : '…'}`} />}
                     {m.situacao === 'erro' && <Faixa icone={TriangleAlert} texto="Erro" perigo />}
@@ -177,6 +196,15 @@ export function PaginaMidias({ alvo }: { alvo: string }) {
                       <div className="truncate text-[11px] text-suave" title={m.detalhe ?? undefined}>
                         {m.situacao === 'erro' ? m.detalhe : `${m.largura && m.altura ? `${m.largura}×${m.altura} · ` : ''}${tamanho(m.bytes)}`}
                       </div>
+                      {m.site && (
+                        <div
+                          className={`flex items-center gap-1 truncate text-[11px] ${m.site.aviso && !m.site.atual ? 'text-aviso-texto' : 'text-apagado'}`}
+                          title={m.site.aviso ?? `Veio do site da igreja (${m.site.titulo})`}
+                        >
+                          <CloudDownload className="size-3 shrink-0" />
+                          <span className="truncate">{m.site.dataLocal ? `Site · ${diaMes(m.site.dataLocal)}` : 'Site'}</span>
+                        </div>
+                      )}
                     </div>
                     {m.excluida ? (
                       <>

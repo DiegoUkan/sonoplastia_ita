@@ -352,7 +352,9 @@ processo principal (`src/main/liturgia/`). Tipos de item por enquanto: música, 
 versículo, texto, tela preta/logo; desde a Fase 6 também temporizador, QR code e sorteio. Música pode
 ser "escolher na hora" (a tela de comando pergunta cantado/playback/só a letra). Cada item pode trocar o
 cenário das luzes ao começar e ao sair (luz.local). Itens com miniatura. Ainda não: itens ligados às
-séries do site (Fase 7), transição por item, importar `liturgia.ja`.
+séries do site (Fase 7), transição por item, importar `liturgia.ja`. (Fase 7, 2026-11-15: a série do site é
+uma mídia só, que troca de arquivo a cada semana; o item de mídia que aponta para ela já é o "item ligado ao
+site", e fica com aviso quando o arquivo não é deste sábado.)
 
 ### 5.6 Ferramentas
 
@@ -400,6 +402,23 @@ principal, com tempo limite curto; Configurações → Iluminação.
 
 ### 5.7 Sincronização com o site da sonoplastia
 
+**Como ficou (2026-11-15): pelo catálogo `manifest.json` do site, sem senha.** O site publicou um catálogo só
+de leitura num endereço com chave aleatória (GET, sem cookie nem login; a chave só fica no `config.json`
+local, nunca no código, no repositório ou no log). O programa (`src/main/site/`):
+- lê o manifesto a cada `refresh_after_seconds` (300 s) e no botão "Atualizar agora" (Mídias → Do site);
+  falha de rede: tenta de novo em 30 s, 1 min, 2 min… sem mexer em nada; `schema_version` diferente de 1: para;
+- baixa só `available` + `valid_for_sabbath` + `download_url` do mesmo site, em streaming para um `.part`
+  (retoma com Range/If-Range), confere `size_bytes` e só então põe na biblioteca;
+- séries semanais (`automatico`: Avisos, Provai e Vede, Informativo Mundial das Missões, Momento Vida e Saúde) e
+  fixos são **uma mídia só**: a revisão nova troca o arquivo e mantém o id, então a liturgia usa sempre o
+  vídeo da semana; o antigo sai. Com a mídia no ar, a troca espera;
+- envios (`enviado`) entram como mídias novas e vão para a lixeira quando `expires_at` passa (só com manifesto
+  sem `warnings`); .pptx/.ppsx/.pdf vão para Apresentações;
+- o que chega fica "novo" (selo, contador no menu); o que o operador tira da biblioteca não volta;
+- item de série semanal na liturgia cujo arquivo não é deste sábado: aviso na lista e não entra no ar.
+
+O texto abaixo é o desenho antigo (`status.json`, depois senha), guardado para referência.
+
 Porta para TypeScript do `..\Integração holyrics\sonoplastia_sync.py`, sem a parte do "nome fixo no
 Holyrics" (aqui a liturgia aponta para a série, e não para um arquivo).
 
@@ -437,8 +456,9 @@ Holyrics" (aqui a liturgia aponta para a série, e não para um arquivo).
 - se o sonoplasta apagar um arquivo importado, ele vai para **"deletados"** e **não é importado de novo**;
 - intervalo de atualização a critério (sugestão: 10 min de sexta 0h a sábado 12h; 1 h no resto da
   semana; botão "Atualizar agora").
-A senha não entra no código: o usuário a digita em Configurações (guardada com `safeStorage`). Falta
-conhecer a estrutura das páginas/JSON do site (o usuário entra no navegador do painel do Claude).
+~~A senha não entra no código: o usuário a digita em Configurações (guardada com `safeStorage`).~~ Não foi
+feito: substituído pelo `manifest.json` sem senha (acima). O intervalo ficou o do manifesto (5 min o tempo todo,
+a leitura é leve; só baixa quando a revisão muda).
 
 ### 5.8 Configurações ("generosas")
 
@@ -461,7 +481,8 @@ conhecer a estrutura das páginas/JSON do site (o usuário entra no navegador do
   - **Vídeo e áudio:** volume padrão, fade, "ao terminar", dispositivo de saída de áudio, conversão
     automática, espelhar vídeo no Palco.
   - **Ferramentas:** relógio, temporizador, QR e sorteio (tudo da 5.6).
-  - **Sincronização:** URL do site, chave de leitura, janela de horário, intervalo, limite de banda.
+  - **Sincronização:** ligar/desligar e o endereço do manifesto (com a chave de leitura). Feito assim em
+    2026-11-15; janela de horário e limite de banda ficaram de fora (o intervalo vem do manifesto).
   - **Atalhos de teclado.**
   - **Geral:** prévia × direto, pasta de dados, iniciar com o Windows, backup automático, tema claro ou
     escuro, miniaturas (quadros por segundo).

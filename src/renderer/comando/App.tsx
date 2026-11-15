@@ -26,6 +26,7 @@ import { PaginaBiblia } from './PaginaBiblia'
 import { PaginaConfiguracoes } from './PaginaConfiguracoes'
 import { PaginaFerramentas } from './PaginaFerramentas'
 import { PaginaMidias } from './PaginaMidias'
+import { useEstadoSite } from './PainelSite'
 import { PaginaMusicas } from './PaginaMusicas'
 import { PaginaTelas } from './PaginaTelas'
 import { PaginaTeste } from './PaginaTeste'
@@ -108,6 +109,7 @@ export function App() {
   const [config, salvar] = useConfig()
   const telas = useTelas()
   const telemetrias = useTelemetrias()
+  const site = useEstadoSite()
   const [pagina, setPagina] = useState<Pagina | null>(null)
   const [alvo, setAlvo] = useState<string>(TODAS)
   const [fonteId, setFonteId] = useState<string | null>(null)
@@ -166,7 +168,16 @@ export function App() {
           <div className="text-xs text-suave">IASD Itaqui</div>
         </div>
         {CONTEUDO.map((p) => (
-          <ItemNavegacao key={p.id} id={p.id} icone={p.icone} rotulo={p.rotulo} ativo={pagina === p.id} aoClicar={() => setPagina(p.id)} />
+          <ItemNavegacao
+            key={p.id}
+            id={p.id}
+            icone={p.icone}
+            rotulo={p.rotulo}
+            ativo={pagina === p.id}
+            aoClicar={() => setPagina(p.id)}
+            contador={p.id === 'midias' ? (site?.novos ?? 0) : 0}
+            dicaContador="Arquivos novos do site da igreja"
+          />
         ))}
         {FUTURAS.length > 0 && <div className="mb-1 mt-4 px-2 text-[11px] font-semibold uppercase tracking-wide text-apagado">Em breve</div>}
         {FUTURAS.map((f) => (
@@ -194,7 +205,7 @@ export function App() {
           )}
         </header>
         <div className="min-h-0 flex-1">
-          {pagina === 'midias' && <PaginaMidias alvo={alvo} />}
+          {pagina === 'midias' && <PaginaMidias alvo={alvo} site={site} />}
           {pagina === 'musicas' && <PaginaMusicas alvo={alvo} estado={estado} telemetriaAudio={telemetrias[AUDIO]?.video ?? null} registrarTeclas={registrarTeclas} />}
           {pagina === 'biblia' && <PaginaBiblia alvo={alvo} config={config} registrarTeclas={registrarTeclas} />}
           {pagina === 'apresentacoes' && <PaginaApresentacoes alvo={alvo} estado={estado} config={config} registrarTeclas={registrarTeclas} />}
@@ -247,6 +258,8 @@ function ItemNavegacao({
   desativado,
   dica,
   aoClicar,
+  contador = 0,
+  dicaContador,
 }: {
   id?: string
   icone: LucideIcon
@@ -255,6 +268,9 @@ function ItemNavegacao({
   desativado?: boolean
   dica?: string
   aoClicar?: () => void
+  /** bolinha com um número (ex.: arquivos novos do site) */
+  contador?: number
+  dicaContador?: string
 }) {
   return (
     <button
@@ -276,6 +292,11 @@ function ItemNavegacao({
       <Icone className="size-4" />
       <span className="flex-1">{rotulo}</span>
       {dica && <span className="text-[10px] text-apagado">{dica}</span>}
+      {contador > 0 && (
+        <span title={dicaContador} className="min-w-5 rounded-full bg-destaque px-1.5 text-center text-[11px] font-bold leading-5 text-sobre-destaque">
+          {contador}
+        </span>
+      )}
     </button>
   )
 }
@@ -285,6 +306,7 @@ const NOMES_TAREFA: Record<Progresso['tarefa'], string> = {
   biblia: 'Importando Bíblia',
   midias: 'Importando mídias',
   apresentacoes: 'Convertendo apresentação',
+  site: 'Baixando do site:',
 }
 
 function BarraStatus({ config, telas, progresso }: { config: Config; telas: EstadoTelas; progresso: Progresso | null }) {

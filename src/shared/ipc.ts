@@ -18,6 +18,7 @@ import type {
 } from './dados'
 import type { Alvo, ArquivoEscolhido, Comando, EstadoMotor, EstadoTelas, Telemetria, VersaoMusica } from './estado'
 import type { EstadoLuz } from './iluminacao'
+import type { EstadoSite } from './site'
 
 export const CANAIS = {
   comando: 'motor:comando',
@@ -45,6 +46,11 @@ export const CANAIS = {
   restaurarMidia: 'midias:restaurar',
   apagarMidia: 'midias:apagar',
   midiasMudaram: 'midias:mudaram',
+  // arquivos do site da igreja
+  estadoSite: 'site:estado',
+  siteMudou: 'site:mudou',
+  atualizarSite: 'site:atualizar',
+  marcarVistosSite: 'site:marcar-vistos',
   // músicas
   listarMusicas: 'musicas:listar',
   obterMusica: 'musicas:obter',
@@ -136,6 +142,14 @@ export interface ApiSonoplastia {
   restaurarMidia(id: number): Promise<void>
   apagarMidia(id: number): Promise<void>
   aoMudarMidias(cb: () => void): () => void
+
+  /** arquivos do site da igreja: o que o site tem, o que já chegou e como foi a última conferida */
+  estadoSite(): Promise<EstadoSite>
+  aoMudarSite(cb: (e: EstadoSite) => void): () => void
+  /** confere o site agora (volta quando terminar, inclusive os downloads) */
+  atualizarSite(): Promise<void>
+  /** tira o "novo" (sem ids: de todos) */
+  marcarVistosSite(ids?: string[]): Promise<void>
 
   listarMusicas(busca: string): Promise<ResumoMusica[]>
   obterMusica(id: number): Promise<Musica | null>

@@ -25,6 +25,7 @@ import {
   Square,
   StickyNote,
   Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -55,7 +56,7 @@ import { api, useAgora } from '../compartilhado/ganchos'
 import type { TeclaPagina } from './App'
 import { mensagemDeErro } from './acoes'
 import { arquivosDoArraste, TIPO_ARRASTE } from './arrastar'
-import { completarItem, detalheDoItem, iconeDoItem, MiniaturaItem, PainelAdicionar, PainelEditar, useMiniaturasLiturgia } from './PainelItemLiturgia'
+import { completarItem, detalheDoItem, iconeDoItem, MiniaturaItem, PainelAdicionar, PainelEditar, useAvisosLiturgia, useMiniaturasLiturgia } from './PainelItemLiturgia'
 import { Botao, classeEntrada, Interruptor, Selo } from './ui'
 
 const digitando = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest?.('input, textarea, select')
@@ -87,6 +88,7 @@ export function PaginaLiturgia({ alvo, estado, config, registrarTeclas }: Props)
   const [selId, setSelId] = useState<number | null>(null)
   const [doc, setDoc] = useState<Liturgia | null>(null)
   const miniaturas = useMiniaturasLiturgia(doc?.secoes ?? null)
+  const avisosSite = useAvisosLiturgia(doc?.secoes ?? null)
   const [painel, setPainel] = useState<Painel>(null)
   const [aviso, setAviso] = useState<string | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
@@ -422,6 +424,7 @@ export function PaginaLiturgia({ alvo, estado, config, registrarTeclas }: Props)
                   editado={painel?.tipo === 'editar' ? painel.itemId : null}
                   liturgiaId={doc.id}
                   miniaturas={miniaturas}
+                  avisos={avisosSite}
                   aoMudar={(p) => mudarSecao(s.id, p)}
                   aoMover={(p) => moverSecao(s.id, p)}
                   aoRemover={() => removerSecao(s)}
@@ -516,6 +519,8 @@ interface PropsSecao {
   liturgiaId: number
   /** imagem de cada item (mídia, slide, música), pelo id do item */
   miniaturas: Map<string, string>
+  /** séries do site que não são deste sábado, pelo id do item */
+  avisos: Map<string, string>
   aoMudar: (p: Partial<SecaoLiturgia>) => void
   aoMover: (p: 1 | -1) => void
   aoRemover: () => void
@@ -658,6 +663,7 @@ function CartaoSecao(p: PropsSecao) {
             linhaAntes={soltarEm === i}
             liturgiaId={p.liturgiaId}
             miniatura={p.miniaturas.get(item.id) ?? null}
+            aviso={p.avisos.get(item.id) ?? null}
             aoSobre={(antes) => setSoltarEm(antes ? i : i + 1)}
             aoEditar={() => p.aoEditar(item.id)}
             aoExecutar={() => p.aoExecutar(item.id)}
@@ -684,6 +690,8 @@ function LinhaItem(p: {
   linhaAntes: boolean
   liturgiaId: number
   miniatura: string | null
+  /** série do site que não é deste sábado */
+  aviso: string | null
   aoSobre: (antes: boolean) => void
   aoEditar: () => void
   aoExecutar: () => void
@@ -723,7 +731,14 @@ function LinhaItem(p: {
         <MiniaturaItem item={it} imagem={p.miniatura} icone={Icone} noAr={p.noAr} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{tituloDoItem(it)}</span>
-          <span className={`block truncate text-[11px] ${p.noAr ? 'text-sobre-destaque/80' : 'text-suave'}`}>{detalheDoItem(it, p.config)}</span>
+          {p.aviso ? (
+            <span className={`flex items-center gap-1 truncate text-[11px] font-medium ${p.noAr ? 'text-sobre-destaque' : 'text-aviso-texto'}`} title={p.aviso}>
+              <TriangleAlert className="size-3 shrink-0" />
+              <span className="truncate">{p.aviso}</span>
+            </span>
+          ) : (
+            <span className={`block truncate text-[11px] ${p.noAr ? 'text-sobre-destaque/80' : 'text-suave'}`}>{detalheDoItem(it, p.config)}</span>
+          )}
         </span>
         {it.observacao && <StickyNote className="size-3.5 shrink-0 opacity-60" aria-label="Tem observação" />}
         {it.avancar && <FastForward className="size-3.5 shrink-0 opacity-60" aria-label="Passa sozinho no fim" />}

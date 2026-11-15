@@ -1,4 +1,5 @@
 /** Dados da biblioteca (mídias, músicas, Bíblia) que passam entre o motor e a tela de comando. */
+import type { InfoSiteMidia } from './site'
 
 export type TipoMidia = 'video' | 'imagem' | 'audio'
 export type SituacaoMidia = 'analisando' | 'convertendo' | 'pronto' | 'erro'
@@ -20,6 +21,8 @@ export interface Midia {
   progresso: number | null
   criadoEm: string
   excluida: boolean
+  /** veio do site da igreja (null = importada à mão) */
+  site: InfoSiteMidia | null
 }
 
 export interface FiltroMidias {
@@ -93,7 +96,7 @@ export interface ArquivoBibliaEncontrado {
 
 /** Andamento de uma tarefa longa (importação, conversão). */
 export interface Progresso {
-  tarefa: 'louvorja' | 'biblia' | 'midias' | 'apresentacoes'
+  tarefa: 'louvorja' | 'biblia' | 'midias' | 'apresentacoes' | 'site'
   feito: number
   total: number
   texto?: string

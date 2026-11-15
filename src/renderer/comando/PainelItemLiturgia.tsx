@@ -109,6 +109,28 @@ export function useMiniaturasLiturgia(secoes: SecaoLiturgia[] | null): Map<strin
   return r
 }
 
+/**
+ * Itens de mídia que são séries do site (Provai e Vede, Avisos…) cujo arquivo daqui não é deste
+ * sábado: id do item → o motivo. A liturgia não põe esses no ar.
+ */
+export function useAvisosLiturgia(secoes: SecaoLiturgia[] | null): Map<string, string> {
+  const [avisos, setAvisos] = useState<Map<number, string>>(new Map())
+  useEffect(() => {
+    const ler = () =>
+      void api
+        .listarMidias({ tipo: 'todos', busca: '' })
+        .then((l) => setAvisos(new Map(l.filter((m) => m.site?.categoria === 'automatico' && !m.site.atual && m.site.aviso).map((m) => [m.id, m.site!.aviso!]))))
+    ler()
+    return api.aoMudarMidias(ler)
+  }, [])
+  const r = new Map<string, string>()
+  for (const i of (secoes ?? []).flatMap((s) => s.itens)) {
+    const a = i.tipo === 'midia' ? avisos.get(i.midiaId) : undefined
+    if (a) r.set(i.id, a)
+  }
+  return r
+}
+
 /** A figurinha do item na lista: a imagem dele, o QR code, ou o ícone do tipo. */
 export function MiniaturaItem({ item, imagem, icone: Icone, noAr }: { item: ItemLiturgia; imagem: string | null; icone: typeof Film; noAr: boolean }) {
   const moldura = `relative flex h-9 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md ${noAr ? 'ring-2 ring-sobre-destaque/70' : 'ring-1 ring-borda'}`

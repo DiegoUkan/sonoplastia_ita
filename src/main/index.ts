@@ -33,7 +33,9 @@ import { ArmazemConfig } from './config'
 import { acharFfmpeg, garantirVideoDeTeste } from './ffmpeg'
 import { ClienteIluminacao } from './iluminacao'
 import { iniciarLog, log } from './log'
+import { caminhoDaUrlMidia, ESQUEMA_MIDIA } from '../shared/midia'
 import { liberarArquivo, permitirPasta, registrarEsquemaPrivilegiado, tratarProtocoloMidia } from './midia'
+import { emUsoNoMotor, SincronizadorSite } from './site/sincronizador'
 import { Motor } from './motor'
 import { importarLouvorJa } from './musicas/louvorJa'
 import { ExecutorLiturgia } from './liturgia/executor'
@@ -175,6 +177,8 @@ async function iniciar(): Promise<void> {
     }, 800)
   })
   const telemetrias = new Map<string, Telemetria>()
+  // ligado mais abaixo, quando o sincronizador do site existe
+  let marcarVistoSite: (caminho: string) => void = () => {}
   const pastaRecursos = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
   const ffmpeg = acharFfmpeg(pastaRecursos)
   const videoDeTeste = () => garantirVideoDeTeste(join(caminhos.videos, 'video-de-teste.mp4'), ffmpeg)
@@ -233,6 +237,9 @@ async function iniciar(): Promise<void> {
     motor.executar(c)
     // fim do áudio: a liturgia pode passar sozinha para o próximo item
     if (c.tipo === 'audio:terminou') executorLiturgia?.aoTerminarAudio(c.url)
+    // o que veio do site deixa de ser "novo" quando vai ao ar
+    const url = c.tipo === 'mostrar' && (c.conteudo.tipo === 'video' || c.conteudo.tipo === 'imagem') ? c.conteudo.url : c.tipo === 'audio' ? c.fonte?.url : null
+    if (url?.startsWith(`${ESQUEMA_MIDIA}:`)) marcarVistoSite(caminhoDaUrlMidia(url))
   })
   ipcMain.handle(CANAIS.obterEstado, () => motor.estado)
   ipcMain.handle(CANAIS.obterConfig, () => armazem.obter())
@@ -452,6 +459,40 @@ async function iniciar(): Promise<void> {
     return true
   })
 
+  // --- arquivos do site da igreja (manifest.json). No autoteste o site não é consultado.
+  const site = new SincronizadorSite({
+    db,
+    buscar: (url, init) => net.fetch(url, init),
+    pasta: caminhos.siteBaixando,
+    midias,
+    apresentacoes,
+    endereco: () => armazem.obter().site.endereco,
+    ativo: () => armazem.obter().site.ativo && !AUTOTESTE,
+    emUso: () => emUsoNoMotor(motor.estado),
+  })
+  midias.fonteSite = () => site.infosDasMidias()
+  marcarVistoSite = (caminho) => site.vistoPorArquivo(caminho)
+  let avisoSite: NodeJS.Timeout | null = null
+  site.on('mudou', () => {
+    if (avisoSite) return
+    avisoSite = setTimeout(() => {
+      avisoSite = null
+      janelaComando?.webContents.send(CANAIS.siteMudou, site.estado())
+      // os cartões de Mídias mostram "novo" e "não é deste sábado"
+      janelaComando?.webContents.send(CANAIS.midiasMudaram)
+    }, 250)
+  })
+  site.on('progresso', (p: { feito: number; total: number; texto?: string; fim?: boolean }) =>
+    progresso({ tarefa: 'site', feito: p.feito, total: p.total, texto: p.texto, fim: p.fim }),
+  )
+  armazem.on('mudou', () => site.configMudou())
+  ipcMain.handle(CANAIS.estadoSite, () => site.estado())
+  ipcMain.handle(CANAIS.atualizarSite, async () => {
+    if (!armazem.obter().site.endereco.trim()) throw new Error('Cole primeiro o endereço do manifesto em Configurações → Site da igreja.')
+    await site.atualizarAgora()
+  })
+  ipcMain.handle(CANAIS.marcarVistosSite, (_e, ids?: string[]) => site.marcarVistos(Array.isArray(ids) ? ids.map(String) : undefined))
+
   // --- iluminação (luz.local). No autoteste nada é mandado para as luzes de verdade.
   const luz = new ClienteIluminacao(() => armazem.obter().iluminacao)
   if (cfg.iluminacao.ativo && !AUTOTESTE) luz.preparar()
@@ -487,6 +528,7 @@ async function iniciar(): Promise<void> {
     capitulo: (sigla, livro, cap) => biblia.capitulo(sigla, livro, cap),
     versoes: () => biblia.versoes(),
     urlFundo: (c) => (existsSync(c) ? liberarArquivo(c) : null),
+    avisoDaMidia: (id) => site.avisoDaMidia(id),
   })
   const execLit = executorLiturgia
   const avisarLiturgias = () => janelaComando?.webContents.send(CANAIS.liturgiasMudaram)
@@ -569,6 +611,7 @@ async function iniciar(): Promise<void> {
   telas.iniciar(cfg.geral.abrirSaidasAoIniciar)
   midias.retomar()
   apresentacoes.retomar()
+  if (!AUTOTESTE) site.iniciar()
 
   // controle remoto pelo celular: http://<IP do computador>:<porta> (página remoto.html)
   const remoto = ligarControleRemoto({
@@ -593,6 +636,7 @@ async function iniciar(): Promise<void> {
 
   app.on('before-quit', () => {
     encerrando = true
+    site.parar()
     telas.encerrar()
     sonda.fechar()
     armazem.gravarAgora()

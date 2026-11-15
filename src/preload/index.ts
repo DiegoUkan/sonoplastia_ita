@@ -47,6 +47,11 @@ const api: ApiSonoplastia = {
   apagarMidia: chamar(CANAIS.apagarMidia),
   aoMudarMidias: (cb) => ouvir(CANAIS.midiasMudaram, cb),
 
+  estadoSite: chamar(CANAIS.estadoSite),
+  aoMudarSite: (cb) => ouvir(CANAIS.siteMudou, cb),
+  atualizarSite: chamar(CANAIS.atualizarSite),
+  marcarVistosSite: chamar(CANAIS.marcarVistosSite),
+
   listarMusicas: chamar(CANAIS.listarMusicas),
   obterMusica: chamar(CANAIS.obterMusica),
   salvarMusica: chamar(CANAIS.salvarMusica),

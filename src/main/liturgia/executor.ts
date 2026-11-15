@@ -30,6 +30,8 @@ export interface DepsExecutor {
   urlFundo(caminho: string): string | null
   /** aplica um cenário das luzes (sem esperar); sem isso, a liturgia não mexe nas luzes */
   luz?: (cenario: string) => void
+  /** série semanal do site que não é deste sábado: o motivo (null = pode pôr no ar) */
+  avisoDaMidia?: (midiaId: number) => string | null
 }
 
 interface ItemNoAr {
@@ -379,6 +381,9 @@ export class ExecutorLiturgia {
         if (!md || md.excluida) throw new Error('A mídia deste item não está mais na biblioteca.')
         if (md.situacao === 'erro') throw new Error(`A mídia "${md.nome}" está com erro: ${md.detalhe ?? 'não abre'}.`)
         if (md.situacao === 'convertendo') throw new Error(`A mídia "${md.nome}" ainda está sendo convertida.`)
+        // série do site (Provai e Vede, Avisos…): o vídeo de outra semana não entra no ar pela liturgia
+        const aviso = this.d.avisoDaMidia?.(md.id)
+        if (aviso) throw new Error(aviso)
         return () => {
           if (md.tipo === 'audio') m.executar({ tipo: 'audio', fonte: { tipo: 'audio', url: md.url, nome: md.nome, midiaId: md.id } })
           else if (md.tipo === 'imagem') m.executar({ tipo: 'mostrar', alvo, conteudo: { tipo: 'imagem', url: md.url, nome: md.nome } })

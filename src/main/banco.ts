@@ -116,6 +116,44 @@ const MIGRACOES: string[] = [
   );
   create index liturgias_data on liturgias (modelo, data);
   `,
+  // 4: arquivos do site da igreja (manifest.json): o que o site tem e o que já está na biblioteca
+  `
+  create table site_itens (
+    id text primary key,
+    categoria text not null,
+    titulo text not null default '',
+    arquivo text,
+    mime text,
+    bytes integer not null default 0,
+    -- do manifesto, na última leitura
+    revisao text,
+    disponivel integer not null default 0,
+    valido integer not null default 0,
+    data_midia text,
+    sabado text,
+    nota text,
+    expira_em text,
+    url text,
+    no_manifesto integer not null default 1,
+    -- o que está na biblioteca (veio de qual revisão, de qual data)
+    revisao_local text,
+    data_local text,
+    midia_id integer,
+    apresentacao_id integer,
+    -- 1 = o arquivo é do programa (pode ser trocado ou ir para a lixeira); 0 = já estava na biblioteca
+    gerenciada integer not null default 1,
+    -- 'ok', 'erro' ou 'esperando' (a mídia de agora está no ar)
+    situacao text not null default 'ok',
+    detalhe text,
+    novo integer not null default 0,
+    baixado_em text,
+    -- quando o programa mandou um envio vencido para a lixeira
+    retirado_em text,
+    criado_em text not null,
+    atualizado_em text not null
+  );
+  create index site_itens_midia on site_itens (midia_id);
+  `,
 ]
 
 export function abrirBanco(arquivo: string): Banco {

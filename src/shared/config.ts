@@ -4,7 +4,7 @@
  * Cada opção tem tipo, valor padrão e textos (`title`, `description`) para a tela de configurações,
  * que é gerada a partir deste esquema (`z.toJSONSchema`). Opção sem `title` não aparece na tela.
  * Chaves extras usadas pela tela:
- *   'x-ui'     'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'versao-biblia' | 'pasta'
+ *   'x-ui'     'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'versao-biblia' | 'pasta' | 'segredo'
  *   'x-passo'  passo do controle deslizante
  *   'x-opcoes' rótulos das opções de um enum
  * Para criar uma opção nova, basta acrescentá-la aqui com `.default()` e `.meta()`.
@@ -372,6 +372,20 @@ export const EsquemaIluminacao = z.object({
 })
 export type ConfigIluminacao = z.infer<typeof EsquemaIluminacao>
 
+export const EsquemaSite = z.object({
+  ativo: z.boolean().default(true).meta({
+    title: 'Buscar os arquivos do site sozinho',
+    description:
+      'Confere o site a cada 5 minutos e baixa para a biblioteca de Mídias o que é deste sábado: Avisos, Provai e Vede, Informativo das Missões, Vida e Saúde, materiais fixos e os arquivos enviados pelas pessoas.',
+  }),
+  endereco: z.string().max(2000).default('').meta({
+    title: 'Endereço do manifesto',
+    description: 'O link do manifest.json que a equipe do site passou. Ele tem uma chave de leitura: não mande para ninguém nem publique.',
+    'x-ui': 'segredo',
+  }),
+})
+export type ConfigSite = z.infer<typeof EsquemaSite>
+
 /** Preferências da própria tela de comando (sem texto: não aparecem no formulário). */
 export const EsquemaInterface = z.object({
   painelRecolhido: z.boolean().default(false),
@@ -395,6 +409,7 @@ export const EsquemaConfig = z.object({
   remoto: EsquemaRemoto.prefault({}),
   ferramentas: EsquemaFerramentas.prefault({}),
   iluminacao: EsquemaIluminacao.prefault({}),
+  site: EsquemaSite.prefault({}),
   interface: EsquemaInterface.prefault({}),
   saidas: z
     .array(EsquemaSaida)

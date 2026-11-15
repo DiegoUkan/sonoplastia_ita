@@ -21,6 +21,8 @@ export const caminhos = {
   biblias: join(base, 'biblias'),
   cache: join(base, 'cache'),
   miniaturas: join(base, 'cache', 'miniaturas'),
+  /** downloads do site pela metade (só vão para a biblioteca depois de completos e conferidos) */
+  siteBaixando: join(base, 'cache', 'site'),
   logs: join(base, 'logs'),
 }
 

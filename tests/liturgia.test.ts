@@ -159,7 +159,7 @@ function montarExecutor(l: Liturgia) {
   const motor = new Motor(['publico', 'palco'])
   const abertas: string[] = []
   const midias: Record<number, Midia> = {
-    7: { id: 7, tipo: 'video', nome: 'Provai e Vede', arquivo: 'v.mp4', url: 'midia://local/v.mp4', miniaturaUrl: null, duracao: 60, largura: 1920, altura: 1080, bytes: 1, situacao: 'pronto', detalhe: null, progresso: null, criadoEm: '', excluida: false },
+    7: { id: 7, tipo: 'video', nome: 'Provai e Vede', arquivo: 'v.mp4', url: 'midia://local/v.mp4', miniaturaUrl: null, duracao: 60, largura: 1920, altura: 1080, bytes: 1, situacao: 'pronto', detalhe: null, progresso: null, criadoEm: '', excluida: false, site: null },
   }
   const versiculos = [
     { versiculo: 16, texto: 'Porque Deus amou o mundo de tal maneira…' },

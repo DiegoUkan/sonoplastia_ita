@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { basename, extname, join } from 'node:path'
 import type { FiltroMidias, Midia, ResultadoImportacao, SituacaoMidia, TipoMidia } from '../../shared/dados'
 import { urlMidia } from '../../shared/midia'
+import type { InfoSiteMidia } from '../../shared/site'
 import type { Banco } from '../banco'
 import { converter } from '../ffmpeg'
 import { log } from '../log'
@@ -58,10 +59,23 @@ export function nomeLivre(pasta: string, nome: string): string {
   return candidato
 }
 
+/** Move o arquivo (se for para outro disco, copia e apaga o original). */
+export async function moverArquivo(de: string, para: string): Promise<void> {
+  try {
+    await fsp.rename(de, para)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
+    await fsp.copyFile(de, para)
+    await fsp.rm(de, { force: true })
+  }
+}
+
 export class BibliotecaMidias extends EventEmitter {
   private fila: number[] = []
   private trabalhando = false
   private progresso = new Map<number, number>()
+  /** o que se sabe do site sobre cada mídia que veio de lá (o sincronizador do site preenche) */
+  fonteSite: (() => Map<number, InfoSiteMidia>) | null = null
 
   constructor(
     private readonly db: Banco,
@@ -95,15 +109,16 @@ export class BibliotecaMidias extends EventEmitter {
     const linhas = this.db
       .prepare(`select * from midias where ${cond.join(' and ')} order by criado_em desc, id desc limit 1000`)
       .all(...params) as unknown as Linha[]
-    return linhas.map((l) => this.paraMidia(l))
+    const site = this.fonteSite?.() ?? null
+    return linhas.map((l) => this.paraMidia(l, site))
   }
 
   obter(id: number): Midia | null {
     const l = this.db.prepare('select * from midias where id = ?').get(id) as unknown as Linha | undefined
-    return l ? this.paraMidia(l) : null
+    return l ? this.paraMidia(l, this.fonteSite?.() ?? null) : null
   }
 
-  private paraMidia(l: Linha): Midia {
+  private paraMidia(l: Linha, site: Map<number, InfoSiteMidia> | null): Midia {
     return {
       id: l.id,
       tipo: l.tipo,
@@ -120,7 +135,68 @@ export class BibliotecaMidias extends EventEmitter {
       progresso: this.progresso.get(l.id) ?? null,
       criadoEm: l.criado_em,
       excluida: l.excluido_em !== null,
+      site: site?.get(l.id) ?? null,
     }
+  }
+
+  /**
+   * Põe na biblioteca um arquivo baixado (do site): MOVE para a pasta do tipo, sem copiar de novo.
+   * Se o mesmo conteúdo já está na biblioteca, apaga o baixado e devolve a que já existe.
+   */
+  async registrarBaixado(caminho: string, nomeArquivo: string, nome: string): Promise<{ id: number; repetida: boolean }> {
+    const tipo = tipoDoArquivo(nomeArquivo)
+    if (!tipo) throw new Error(`Tipo de arquivo não aceito na biblioteca: ${nomeArquivo}`)
+    const hash = await sha256(caminho)
+    const existente = this.db.prepare('select id from midias where sha256 = ? and excluido_em is null').get(hash) as { id: number } | undefined
+    if (existente) {
+      rmSync(caminho, { force: true })
+      return { id: existente.id, repetida: true }
+    }
+    const pasta = join(this.pastas.base, tipo)
+    await fsp.mkdir(pasta, { recursive: true })
+    const destino = nomeLivre(pasta, nomeArquivo)
+    await moverArquivo(caminho, destino)
+    const res = this.db
+      .prepare(
+        `insert into midias (tipo, nome, arquivo, original, sha256, bytes, situacao, criado_em)
+         values (?, ?, ?, null, ?, ?, 'analisando', ?)`,
+      )
+      .run(tipo, nome.trim() || basename(nomeArquivo, extname(nomeArquivo)), destino, hash, statSync(destino).size, new Date().toISOString())
+    const id = Number(res.lastInsertRowid)
+    this.enfileirar(id)
+    this.emit('mudou')
+    return { id, repetida: false }
+  }
+
+  /**
+   * Troca o arquivo de uma mídia por outro (versão nova de uma série do site), mantendo o id: os
+   * itens da liturgia que apontam para ela passam a usar o arquivo novo. O antigo é apagado. Se a
+   * mídia estava na lixeira, volta para a biblioteca.
+   */
+  async substituirArquivo(id: number, caminho: string, nomeArquivo: string, nome: string): Promise<void> {
+    const l = this.db.prepare('select * from midias where id = ?').get(id) as unknown as Linha | undefined
+    if (!l) throw new Error('A mídia não existe mais.')
+    const tipo = tipoDoArquivo(nomeArquivo)
+    if (!tipo) throw new Error(`Tipo de arquivo não aceito na biblioteca: ${nomeArquivo}`)
+    const hash = await sha256(caminho)
+    // outra mídia com o mesmo conteúdo: fica sem sha256 (o índice não deixa dois iguais na biblioteca)
+    const outra = this.db.prepare('select id from midias where sha256 = ? and excluido_em is null and id <> ?').get(hash, id)
+    const pasta = join(this.pastas.base, tipo)
+    await fsp.mkdir(pasta, { recursive: true })
+    const destino = nomeLivre(pasta, nomeArquivo)
+    await moverArquivo(caminho, destino)
+    this.fila = this.fila.filter((x) => x !== id)
+    this.progresso.delete(id)
+    this.db
+      .prepare(
+        `update midias set tipo = ?, nome = ?, arquivo = ?, sha256 = ?, bytes = ?, duracao = null, largura = null,
+         altura = null, miniatura = null, situacao = 'analisando', detalhe = null, excluido_em = null where id = ?`,
+      )
+      .run(tipo, nome.trim() || l.nome, destino, outra ? null : hash, statSync(destino).size, id)
+    for (const c of [l.arquivo, l.miniatura]) if (c && c !== destino) rmSync(c, { force: true })
+    log.info(`Mídia ${id} trocada pela versão nova: ${basename(destino)}`)
+    this.enfileirar(id)
+    this.emit('mudou')
   }
 
   async importar(caminhos: string[]): Promise<ResultadoImportacao> {
@@ -235,8 +311,10 @@ export class BibliotecaMidias extends EventEmitter {
       let miniatura: string | null = null
       if (r.miniatura?.startsWith('data:image/jpeg;base64,')) {
         await fsp.mkdir(this.pastas.miniaturas, { recursive: true })
-        miniatura = join(this.pastas.miniaturas, `${id}.jpg`)
+        // nome com a versão: quando o arquivo da mídia é trocado (site), a tela não fica com a imagem velha guardada
+        miniatura = join(this.pastas.miniaturas, `${id}-${Date.now().toString(36)}.jpg`)
         await fsp.writeFile(miniatura, Buffer.from(r.miniatura.slice('data:image/jpeg;base64,'.length), 'base64'))
+        if (l.miniatura && l.miniatura !== miniatura) rmSync(l.miniatura, { force: true })
       }
       this.db
         .prepare(

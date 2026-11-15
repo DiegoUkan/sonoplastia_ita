@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   BookOpen,
   ChevronRight,
+  CloudDownload,
   Lightbulb,
   Download,
   type LucideIcon,
@@ -27,6 +28,7 @@ import {
   EsquemaGeral,
   EsquemaIluminacao,
   EsquemaMusicas,
+  EsquemaSite,
   EsquemaTelaEspera,
 } from '../../shared/config'
 import type { Progresso, ResultadoLouvorJa } from '../../shared/dados'
@@ -38,7 +40,7 @@ import { FormularioEsquema } from './FormularioEsquema'
 import { SecaoRemoto } from './Remoto'
 import { BarraProgresso, Botao, Secao } from './ui'
 
-type IdPasta = 'geral' | 'musicas' | 'biblia' | 'apresentacoes' | 'fundos' | 'espera' | 'ferramentas' | 'iluminacao' | 'remoto'
+type IdPasta = 'geral' | 'musicas' | 'biblia' | 'apresentacoes' | 'fundos' | 'espera' | 'ferramentas' | 'site' | 'iluminacao' | 'remoto'
 
 const nomeArquivo = (caminho: string) => caminho.split(/[\\/]/).pop() ?? caminho
 
@@ -93,6 +95,13 @@ const PASTAS: Array<{ id: IdPasta; titulo: string; descricao: string; icone: Luc
     icone: Wrench,
     resumo: (c) =>
       `Amarelo aos ${c.ferramentas.temporizadorAmareloMin} min · no fim: ${c.ferramentas.temporizadorAoTerminar === 'negativo' ? 'conta o tempo passado' : 'para no 0:00'}`,
+  },
+  {
+    id: 'site',
+    titulo: 'Site da igreja',
+    descricao: 'Vídeos da semana e arquivos enviados, que chegam sozinhos em Mídias.',
+    icone: CloudDownload,
+    resumo: (c) => (!c.site.endereco.trim() ? 'Sem endereço do manifesto' : c.site.ativo ? 'Ligado · confere a cada 5 min' : 'Desligado'),
   },
   {
     id: 'iluminacao',
@@ -234,6 +243,18 @@ function ConteudoPasta({ pasta, config, salvar }: { pasta: IdPasta; config: Conf
       return (
         <Secao titulo="Ferramentas" descricao="Onde cada ferramenta aparece (e a posição e o tamanho no canto) fica na própria página Ferramentas.">
           <FormularioEsquema esquema={EsquemaFerramentas} valor={config.ferramentas} aoMudar={(ferramentas) => salvar({ ...config, ferramentas })} />
+        </Secao>
+      )
+    case 'site':
+      return (
+        <Secao
+          titulo="Site da igreja"
+          descricao="O programa lê o catálogo de mídias do site (manifest.json) e baixa para a biblioteca de Mídias o que é deste sábado. O andamento fica em Mídias → Do site."
+        >
+          <FormularioEsquema esquema={EsquemaSite} valor={config.site} aoMudar={(site) => salvar({ ...config, site })} />
+          <p className="mt-3 text-xs text-suave">
+            Não precisa de senha: o próprio endereço tem a chave de leitura. Se o link vazar, peça um novo à equipe do site e cole aqui.
+          </p>
         </Secao>
       )
     case 'iluminacao':
