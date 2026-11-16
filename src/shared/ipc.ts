@@ -19,7 +19,7 @@ import type {
 import type { Alvo, ArquivoEscolhido, Comando, EstadoMotor, EstadoTelas, Telemetria, VersaoMusica } from './estado'
 import type { EstadoLuz } from './iluminacao'
 import type { EstadoSite } from './site'
-import type { EstadoTranscricao, NivelEscuta, ResultadoTeste } from './transcricao/tipos'
+import type { EstadoTranscricao, InstalacaoWhisper, NivelEscuta, ResultadoTeste } from './transcricao/tipos'
 
 export const CANAIS = {
   comando: 'motor:comando',
@@ -112,6 +112,9 @@ export const CANAIS = {
   listarModelosIA: 'transcricao:modelos',
   testarElevenLabs: 'transcricao:testar-elevenlabs',
   copiarDoProjetoTranscricao: 'transcricao:copiar-do-projeto',
+  estadoWhisper: 'transcricao:whisper-estado',
+  instalarWhisper: 'transcricao:whisper-instalar',
+  testarWhisper: 'transcricao:whisper-testar',
   // janelas internas
   sondaPedido: 'sonda:pedido',
   sondaResultado: 'sonda:resultado',
@@ -257,6 +260,12 @@ export interface ApiSonoplastia {
    * computador (pergunta a pasta se não achar). Devolve só os nomes do que foi copiado, nunca os valores.
    */
   copiarDoProjetoTranscricao(): Promise<ResultadoTeste>
+  /** transcrição local: o que está instalado do Whisper */
+  estadoWhisper(): Promise<InstalacaoWhisper>
+  /** baixa e confere o Whisper e o modelo escolhido (andamento por `aoProgresso`, tarefa 'whisper') */
+  instalarWhisper(): Promise<InstalacaoWhisper>
+  /** mede quanto uma frase leva neste computador */
+  testarWhisper(): Promise<ResultadoTeste>
 
   /** só a janela-sonda usa */
   aoPedidoSonda(cb: (p: PedidoSonda) => void): () => void

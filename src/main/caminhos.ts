@@ -24,6 +24,8 @@ export const caminhos = {
   /** downloads do site pela metade (só vão para a biblioteca depois de completos e conferidos) */
   siteBaixando: join(base, 'cache', 'site'),
   logs: join(base, 'logs'),
+  /** transcrição local: bin\whisper-server.exe e modelos\*.bin (baixados pelas Configurações) */
+  whisper: join(base, 'whisper'),
 }
 
 export function garantirPastas(): void {

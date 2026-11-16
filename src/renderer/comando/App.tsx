@@ -312,6 +312,7 @@ const NOMES_TAREFA: Record<Progresso['tarefa'], string> = {
   midias: 'Importando mídias',
   apresentacoes: 'Convertendo apresentação',
   site: 'Baixando do site:',
+  whisper: 'Baixando',
 }
 
 function BarraStatus({ config, telas, progresso }: { config: Config; telas: EstadoTelas; progresso: Progresso | null }) {

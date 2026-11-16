@@ -229,6 +229,7 @@ async function iniciar(): Promise<void> {
     config: () => armazem.obter(),
     motor,
     biblia,
+    pastaWhisper: caminhos.whisper,
     abrirEscuta,
     fecharEscuta,
     // tocando de verdade (telemetria), não só "no ar": um vídeo que acabou não segura a pausa
@@ -250,6 +251,24 @@ async function iniciar(): Promise<void> {
   ipcMain.handle(CANAIS.testarIA, () => transcricao.testarIA())
   ipcMain.handle(CANAIS.listarModelosIA, () => transcricao.listarModelos())
   ipcMain.handle(CANAIS.testarElevenLabs, () => transcricao.testarElevenLabs())
+  ipcMain.handle(CANAIS.estadoWhisper, () => transcricao.estadoWhisper())
+  let instalandoWhisper = false
+  ipcMain.handle(CANAIS.instalarWhisper, async () => {
+    if (instalandoWhisper) throw new Error('O Whisper já está sendo baixado (veja a barra de baixo).')
+    instalandoWhisper = true
+    try {
+      const r = await transcricao.instalarWhisper(
+        (url, init) => net.fetch(url, init),
+        (feito, total, texto) => progresso({ tarefa: 'whisper', feito: Math.round(feito / 1e6), total: Math.max(1, Math.round(total / 1e6)), texto: `${texto} (MB)` }),
+      )
+      log.info('Bíblia automática: Whisper instalado em', r.pasta)
+      return r
+    } finally {
+      instalandoWhisper = false
+      progresso({ tarefa: 'whisper', feito: 1, total: 1, fim: true })
+    }
+  })
+  ipcMain.handle(CANAIS.testarWhisper, () => transcricao.testarWhisper())
   ipcMain.handle(CANAIS.copiarDoProjetoTranscricao, async () => {
     let pasta = PASTA_TRANSCRICAO
     if (!ehProjetoTranscricao(pasta)) {

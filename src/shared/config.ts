@@ -392,9 +392,28 @@ export type ConfigSite = z.infer<typeof EsquemaSite>
  * Bíblia automática: a fala do microfone vira texto (ElevenLabs) e a IA sugere os versículos.
  * As chaves ficam só no config.json deste computador: não vão para o controle remoto nem para o log.
  */
+export const MOTORES_TRANSCRICAO = ['local', 'elevenlabs'] as const
+export const MODELOS_WHISPER = ['base', 'small'] as const
+
 export const EsquemaTranscricaoEscuta = z.object({
+  motor: z.enum(MOTORES_TRANSCRICAO).default('local').meta({
+    title: 'Onde a fala vira texto',
+    description: 'Neste computador não precisa de internet nem custa nada. A IA que escolhe os versículos continua pela internet.',
+    'x-opcoes': { local: 'Neste computador (Whisper)', elevenlabs: 'Na nuvem (ElevenLabs, com chave)' },
+  }),
+  modeloLocal: z.enum(MODELOS_WHISPER).default('base').meta({
+    title: 'Whisper: modelo',
+    description: 'O base dá conta no PC da igreja. O small erra menos as palavras, mas é cerca de 3 vezes mais lento: use "Testar a velocidade".',
+    'x-opcoes': { base: 'Base (60 MB): rápido', small: 'Small (190 MB): mais preciso, mais lento' },
+  }),
+  threadsLocal: z.number().int().min(1).max(8).default(2).meta({
+    title: 'Whisper: núcleos do processador',
+    description: '2 deixa o resto do computador para o programa, os vídeos e a projeção.',
+    'x-ui': 'deslizante',
+    'x-passo': 1,
+  }),
   chaveElevenLabs: z.string().max(300).default('').meta({
-    title: 'Chave do ElevenLabs',
+    title: 'Chave do ElevenLabs (só na nuvem)',
     description: 'O ElevenLabs transforma a fala em texto (cerca de US$ 0,40 por hora de fala). Só é cobrado enquanto alguém fala.',
     'x-ui': 'segredo',
     'x-dica': 'cole a chave aqui',

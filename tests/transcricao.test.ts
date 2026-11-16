@@ -132,6 +132,13 @@ describe('referências faladas (mesmos casos do projeto de transcrição)', () =
     expect(a.map((x) => formatarReferencia(x.passagem.livro, x.passagem.capitulo, x.passagem.inicio))).toEqual(['Romanos 8:28'])
   })
 
+  it('livro no fim de um trecho com ponto (o Whisper corta na pausa) e o número no próximo', () => {
+    const r = new Rastreador(tamanhos)
+    expect(r.processar('Irmãos, abra a Bíblia comigo em Filipenses.')).toEqual([])
+    const a = r.processar('Capítulo 4, versículo 6.')
+    expect(a.map((x) => formatarReferencia(x.passagem.livro, x.passagem.capitulo, x.passagem.inicio))).toEqual(['Filipenses 4:6'])
+  })
+
   it('números por extenso', () => {
     expect(converterNumeros('vinte e tres'.split(' ')).map((t) => t[0])).toEqual(['23'])
     expect(converterNumeros('tres e quatro'.split(' ')).map((t) => t[0])).toEqual(['3', 'e', '4'])
@@ -445,6 +452,8 @@ describe('ElevenLabs (WebSocket de mentira)', () => {
 
 function configCom(mudar: (c: Config) => void = () => {}): Config {
   const c = configPadrao()
+  // estes testes do serviço são do caminho do ElevenLabs; o local (Whisper) fica em whisper.test.ts
+  c.transcricao.escuta.motor = 'elevenlabs'
   c.transcricao.escuta.chaveElevenLabs = 'el'
   c.transcricao.ia.chave = 'ia'
   mudar(c)
@@ -603,6 +612,7 @@ describe('serviço da Bíblia automática', () => {
       config: () => cfg,
       motor,
       biblia: bibliaFalsa,
+      pastaWhisper: 'nao-existe',
       abrirEscuta: (m) => escuta.push(`abrir:${m}`),
       fecharEscuta: () => escuta.push('fechar'),
       midiaTocando: () => tocando,

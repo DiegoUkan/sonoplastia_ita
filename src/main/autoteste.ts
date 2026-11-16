@@ -640,7 +640,7 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
       ...c,
       transcricao: {
         ...c.transcricao,
-        escuta: { ...c.transcricao.escuta, chaveElevenLabs: 'chave-de-teste' },
+        escuta: { ...c.transcricao.escuta, motor: 'elevenlabs', chaveElevenLabs: 'chave-de-teste' },
         ia: { ...c.transcricao.ia, tipo: 'anthropic', url: '', chave: 'chave-de-teste', intervaloS: 3 },
       },
     })
@@ -689,6 +689,52 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     await esperar(300)
     r.depoisDeDesligar = ctx.transcricao.obter().situacao
     relatorio.transcricao = r
+  })
+
+  await passo('transcricao-local', async () => {
+    // o Whisper de verdade (precisa estar em <dados>\whisper: bin\whisper-server.exe e modelos\ggml-base-q5_1.bin)
+    // ouvindo o microfone de mentira (SONOPLASTIA_AUTOTESTE_AUDIO com uma pregação gravada); a IA é de mentira
+    const instalado = ctx.transcricao.estadoWhisper()
+    if (!instalado.exe || !instalado.modelos.base) {
+      relatorio.transcricaoLocal = 'Whisper não está na pasta de dados; pulado'
+      return
+    }
+    const r: Record<string, unknown> = {}
+    ctx.transcricao.paraTeste({
+      criarConexao: undefined,
+      criarProvedor: () => ({ completarJson: async () => ({ dados: { passagens: [] }, uso: { entrada: 0, saida: 0 } }), listarModelos: async () => [] }),
+    })
+    const c = ctx.armazem.obter()
+    ctx.armazem.salvar({ ...c, transcricao: { ...c.transcricao, escuta: { ...c.transcricao.escuta, motor: 'local', modeloLocal: 'base', threadsLocal: 2 } } })
+    fazer({ tipo: 'mostrar', alvo: 'todas', conteudo: { tipo: 'vazio' } })
+    fazer({ tipo: 'tela', alvo: 'todas', tela: 'normal' })
+    r.velocidade = await ctx.transcricao.testarWhisper()
+    await navegar('biblia')
+    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Automático')?.click()`)
+    const t0 = Date.now()
+    const referencia = () => (ctx.motor.estado.saidas.publico?.conteudo as { referencia?: string }).referencia ?? ''
+    while (Date.now() - t0 < 90_000 && !referencia().startsWith('Filipenses 4:6')) await esperar(500)
+    r.segundosAteATela = (Date.now() - t0) / 1000
+    r.noAr = referencia()
+    // mais um pouco de pregação (a leitura e as outras referências)
+    await esperar(25_000)
+    const e = ctx.transcricao.obter()
+    r.falas = e.falas.map((f) => f.texto)
+    r.sugestoes = e.sugestoes.map((s) => ({ referencia: s.referencia, ligacao: s.ligacao, mostrada: s.mostrada }))
+    r.aviso = e.aviso
+    await capturar('T4-whisper-local')
+    ctx.transcricao.ligar(false)
+    await esperar(1500)
+    r.avisoDepoisDeDesligar = ctx.transcricao.obter().aviso
+    // as Configurações com o motor local (a caixa do Whisper)
+    await navegar('configuracoes')
+    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.includes('Bíblia automática'))?.click()`)
+    await esperar(800)
+    await noComando(`document.querySelector('main .overflow-y-auto')?.scrollBy(0, 330)`)
+    await esperar(500)
+    await capturar('T5-config-whisper', 'comando')
+    await noComando(`[...document.querySelectorAll('button')].find((b) => (b.title || '').startsWith('Voltar para todas'))?.click()`)
+    relatorio.transcricaoLocal = r
   })
 
   await passo('painel-recolhido', async () => {

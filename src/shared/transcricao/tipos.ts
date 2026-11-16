@@ -74,6 +74,14 @@ export interface NivelEscuta {
   voz: boolean
 }
 
+/** O que está instalado da transcrição local (Whisper). */
+export interface InstalacaoWhisper {
+  pasta: string
+  versao: string
+  exe: boolean
+  modelos: Record<'base' | 'small', boolean>
+}
+
 export interface ResultadoTeste {
   ok: boolean
   mensagem: string

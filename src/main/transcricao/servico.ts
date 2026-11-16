@@ -17,17 +17,35 @@ import type { Config } from '../../shared/config'
 import type { VersaoBiblia } from '../../shared/dados'
 import { type Alvo, type Comando, type EstadoMotor, TODAS } from '../../shared/estado'
 import type { EstadoTranscricao, NivelEscuta, ResultadoTeste, SituacaoEscuta } from '../../shared/transcricao/tipos'
-import { type OpcoesPorta, PortaVoz, TAXA_AMOSTRAS } from '../../shared/transcricao/voz'
+import { nivelDb, type OpcoesPorta, PortaVoz, TAXA_AMOSTRAS } from '../../shared/transcricao/voz'
 import { AnalisadorFala, type BibliaDoAnalisador } from './analisador'
 import { ConexaoElevenLabs, type OpcoesElevenLabs } from './elevenlabs'
 import { ESQUEMA, FORMATO_TEXTO, lerEscolhas, montarPedido, sistemaDaIA } from './escolha'
 import { type Buscar, type ConexaoIA, criarProvedor, type ProvedorIA } from './ia'
 import { type FonteIndice, IndiceBiblia } from './indice'
+import {
+  caminhosWhisper,
+  ConexaoWhisper,
+  instalarWhisper,
+  type InstalacaoWhisper,
+  type OpcoesServidorWhisper,
+  ServidorWhisper,
+  situacaoWhisper,
+  type Transcritor,
+} from './whisper'
+
+/** O servidor do Whisper visto pelo serviço (o de verdade ou um de mentira nos testes). */
+export interface ServidorLocal extends Transcritor {
+  iniciar(): Promise<void>
+  parar(): void
+  on(evento: 'caiu', f: (m: string) => void): unknown
+}
 
 /** O que o serviço precisa de uma conexão de transcrição (a do ElevenLabs ou uma de mentira nos testes). */
 export interface ConexaoTranscricao extends EventEmitter {
   readonly abriu: boolean
-  enviar(pcm: Int16Array): void
+  /** `voz`: a porta achou voz neste quadro (o Whisper local corta as frases nas pausas; o ElevenLabs ignora) */
+  enviar(pcm: Int16Array, voz?: boolean): void
   encerrar(): Promise<void>
   fecharJa(): void
 }
@@ -52,6 +70,10 @@ export interface DependenciasServico {
   midiaTocando: () => boolean
   buscar?: Buscar
   criarConexao?: (o: OpcoesElevenLabs) => ConexaoTranscricao
+  /** pasta do Whisper local (executável e modelos) */
+  pastaWhisper: string
+  /** servidor do Whisper (testes: um de mentira) */
+  criarServidorWhisper?: (o: OpcoesServidorWhisper) => ServidorLocal
   criarProvedor?: (c: ConexaoIA) => ProvedorIA
   log?: { info: (...p: unknown[]) => void; aviso: (...p: unknown[]) => void }
 }
@@ -92,6 +114,9 @@ export class ServicoTranscricao extends EventEmitter {
   private sigla = ''
   private microfoneAberto = ''
   private chaveElevenLabs = ''
+  private whisper: { chave: string; servidor: ServidorLocal; pronto: Promise<Transcritor> } | null = null
+  /** o que está instalado do Whisper (olhado no disco só quando algo muda: a situação é lida a cada quadro) */
+  private instalacao: InstalacaoWhisper | null = null
   private timer: NodeJS.Timeout | null = null
   private agendado: NodeJS.Timeout | null = null
   private quadros = 0
@@ -130,9 +155,11 @@ export class ServicoTranscricao extends EventEmitter {
       this.reabrirEm = 0
       this.aviso = null
       this.porta = new PortaVoz(opcoesPorta(c))
+      this.estadoWhisper()
       this.microfoneAberto = c.transcricao.escuta.microfone
       this.d.abrirEscuta(this.microfoneAberto)
       void this.garantirIndice()
+      if (this.local()) this.prontoWhisper().catch(() => {}) // o erro aparece na primeira frase
       this.timer = setInterval(() => {
         this.analisador.talvezCiclo().catch((e) => this.d.log?.aviso('Bíblia automática: ciclo falhou', e))
       }, 500)
@@ -141,8 +168,11 @@ export class ServicoTranscricao extends EventEmitter {
       if (this.timer) clearInterval(this.timer)
       this.timer = null
       this.porta.fechar()
-      this.fecharConexao()
+      // quem voltou para o Manual não precisa da frase que estava na fila
+      this.conexao?.fecharJa()
+      this.conexao = null
       this.d.fecharEscuta()
+      this.pararWhisper()
       this.parcial = ''
       this.pausado = false
       this.d.log?.info('Bíblia automática desligada.')
@@ -167,12 +197,19 @@ export class ServicoTranscricao extends EventEmitter {
 
   configMudou(): void {
     const c = this.d.config()
+    this.estadoWhisper()
     this.porta.configurar(opcoesPorta(c))
     if (c.transcricao.escuta.chaveElevenLabs !== this.chaveElevenLabs) {
       this.chaveElevenLabs = c.transcricao.escuta.chaveElevenLabs
       this.erroFatal = null
       this.falhas = 0
       this.reabrirEm = 0
+    }
+    // outro motor, modelo ou núcleos: o Whisper reabre com o que mudou
+    if (this.whisper && this.whisper.chave !== this.chaveWhisper()) {
+      this.pararWhisper()
+      this.erroFatal = null
+      if (this.ligado && this.local()) this.prontoWhisper().catch(() => {})
     }
     if (this.ligado && c.transcricao.escuta.microfone !== this.microfoneAberto) {
       this.microfoneAberto = c.transcricao.escuta.microfone
@@ -244,19 +281,19 @@ export class ServicoTranscricao extends EventEmitter {
 
   private enviarQuadro(q: Int16Array): void {
     if (!this.conexao) return
-    this.conexao.enviar(q)
+    this.conexao.enviar(q, nivelDb(q) >= this.porta.limiar)
     this.analisador.consumo.segundosAudio += q.length / TAXA_AMOSTRAS
   }
 
   private abrirConexao(iniciais: Int16Array[]): void {
     const chave = this.d.config().transcricao.escuta.chaveElevenLabs.trim()
-    if (!chave || this.erroFatal) return
+    if (this.erroFatal || (!this.local() && !chave)) return
     if (this.conexao) {
       for (const q of iniciais) this.enviarQuadro(q)
       return
     }
     const criar = this.d.criarConexao ?? ((o: OpcoesElevenLabs) => new ConexaoElevenLabs(o))
-    const c = criar({ chave, idioma: 'pt' })
+    const c: ConexaoTranscricao = this.local() ? new ConexaoWhisper(() => this.prontoWhisper()) : criar({ chave, idioma: 'pt' })
     this.conexao = c
     c.on('aberta', () => {
       this.falhas = 0
@@ -286,7 +323,9 @@ export class ServicoTranscricao extends EventEmitter {
       this.falhas++
       this.reabrirEm = Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(this.falhas - 1, 5))
       if (!c.abriu && this.falhas >= 3) {
-        this.aviso = 'Transcrição: o ElevenLabs não abriu a conexão (confira a chave e a internet). Tentando de novo…'
+        this.aviso = this.local()
+          ? 'Transcrição: o Whisper não está respondendo. Tentando de novo…'
+          : 'Transcrição: o ElevenLabs não abriu a conexão (confira a chave e a internet). Tentando de novo…'
         this.d.log?.aviso(`Bíblia automática: ${this.aviso}`)
       }
       this.emitir()
@@ -298,6 +337,99 @@ export class ServicoTranscricao extends EventEmitter {
     const c = this.conexao
     this.conexao = null
     if (c) void c.encerrar()
+  }
+
+  // ------------------------------------------------------------------ Whisper (transcrição local)
+
+  private local(): boolean {
+    return this.d.config().transcricao.escuta.motor === 'local'
+  }
+
+  private chaveWhisper(): string {
+    const e = this.d.config().transcricao.escuta
+    return `${e.motor}|${e.modeloLocal}|${e.threadsLocal}`
+  }
+
+  /** O servidor do Whisper aberto e com o modelo carregado (abre se preciso). */
+  private prontoWhisper(): Promise<Transcritor> {
+    if (this.whisper) return this.whisper.pronto
+    const e = this.d.config().transcricao.escuta
+    const c = caminhosWhisper(this.d.pastaWhisper)
+    const opcoes: OpcoesServidorWhisper = { exe: c.exe, modelo: c.modelo(e.modeloLocal), threads: e.threadsLocal, log: this.d.log }
+    const servidor = this.d.criarServidorWhisper ? this.d.criarServidorWhisper(opcoes) : new ServidorWhisper(opcoes)
+    const atual = {
+      chave: this.chaveWhisper(),
+      servidor,
+      pronto: servidor.iniciar().then(
+        () => servidor as Transcritor,
+        (erro: unknown) => {
+          if (this.whisper === atual) this.whisper = null
+          throw erro
+        },
+      ),
+    }
+    servidor.on('caiu', (m: string) => {
+      if (this.whisper !== atual) return
+      this.whisper = null
+      this.aviso = `Transcrição: ${m} Abrindo de novo na próxima frase.`
+      this.d.log?.aviso(`Bíblia automática: ${m}`)
+      this.emitir()
+    })
+    this.whisper = atual
+    return atual.pronto
+  }
+
+  private pararWhisper(): void {
+    const w = this.whisper
+    this.whisper = null
+    w?.servidor.parar()
+  }
+
+  /** confere no disco (e guarda) */
+  estadoWhisper(): InstalacaoWhisper {
+    this.instalacao = situacaoWhisper(this.d.pastaWhisper)
+    return this.instalacao
+  }
+
+  private whisperInstalado(): boolean {
+    const s = this.instalacao ?? this.estadoWhisper()
+    return s.exe && s.modelos[this.d.config().transcricao.escuta.modeloLocal]
+  }
+
+  /** Baixa e confere o que falta (executável e o modelo escolhido). */
+  async instalarWhisper(buscar: NonNullable<DependenciasServico['buscar']>, aoProgresso: (feito: number, total: number, texto: string) => void): Promise<InstalacaoWhisper> {
+    await instalarWhisper({ pasta: this.d.pastaWhisper, modelo: this.d.config().transcricao.escuta.modeloLocal, buscar, aoProgresso })
+    this.erroFatal = null
+    this.emitir()
+    return this.estadoWhisper()
+  }
+
+  /** Mede quanto uma frase leva para ser transcrita neste computador (com o modelo e os núcleos escolhidos). */
+  async testarWhisper(): Promise<ResultadoTeste> {
+    const e = this.d.config().transcricao.escuta
+    const s = this.estadoWhisper()
+    if (!s.exe || !s.modelos[e.modeloLocal]) return { ok: false, mensagem: `Baixe primeiro o Whisper e o modelo ${e.modeloLocal}.` }
+    try {
+      const t0 = Date.now()
+      const w = await this.prontoWhisper()
+      const abriu = Date.now() - t0
+      // 8 s de um som baixo e constante: o tempo do Whisper quase não depende do que foi dito
+      const pcm = Int16Array.from({ length: TAXA_AMOSTRAS * 8 }, (_, i) => Math.round(300 * Math.sin(i / 7)))
+      const t1 = Date.now()
+      await w.transcrever(pcm)
+      const frase = (Date.now() - t1) / 1000
+      if (!this.ligado) this.pararWhisper()
+      const fmt = (n: number) => n.toFixed(1).replace('.', ',')
+      const bom = frase <= 4
+      return {
+        ok: bom,
+        mensagem: `Uma frase levou ${fmt(frase)} s (modelo ${e.modeloLocal}, ${e.threadsLocal} núcleos; abrir levou ${fmt(abriu / 1000)} s). ${
+          bom ? 'Dá conta da fala ao vivo.' : 'Lento para a fala ao vivo: use o modelo base ou mais núcleos.'
+        }`,
+      }
+    } catch (erro) {
+      return { ok: false, mensagem: erro instanceof Error ? erro.message : String(erro) }
+    }
   }
 
   // ------------------------------------------------------------------ IA e índice
@@ -401,16 +533,26 @@ export class ServicoTranscricao extends EventEmitter {
   private faltando(): string[] {
     const c = this.d.config().transcricao
     const f: string[] = []
-    if (!c.escuta.chaveElevenLabs.trim()) f.push('a chave do ElevenLabs')
+    if (c.escuta.motor === 'elevenlabs' && !c.escuta.chaveElevenLabs.trim()) f.push('a chave do ElevenLabs')
+    if (c.escuta.motor === 'local') {
+      if (!this.whisperInstalado()) f.push(`baixar o Whisper (modelo ${c.escuta.modeloLocal})`)
+    }
     if (c.ia.tipo === 'anthropic' && !c.ia.chave.trim()) f.push('a chave da IA')
     if (!c.ia.modelo.trim()) f.push('o modelo da IA')
     if (!this.d.biblia.versoes().length) f.push('uma versão da Bíblia importada')
     return f
   }
 
+  /** sem como transcrever: falta o Whisper (local) ou a chave (ElevenLabs) */
+  private faltaTranscricao(): boolean {
+    const e = this.d.config().transcricao.escuta
+    if (e.motor === 'elevenlabs') return !e.chaveElevenLabs.trim()
+    return !this.whisperInstalado()
+  }
+
   private situacao(): SituacaoEscuta {
     if (!this.ligado) return 'desligado'
-    if (this.erroFatal || this.erroEscuta || !this.d.config().transcricao.escuta.chaveElevenLabs.trim()) return 'erro'
+    if (this.erroFatal || this.erroEscuta || this.faltaTranscricao()) return 'erro'
     if (!this.escutaPronta) return 'iniciando'
     if (this.pausado) return 'pausado'
     return this.porta.estaAberta ? 'ouvindo' : 'espera'
@@ -423,7 +565,9 @@ export class ServicoTranscricao extends EventEmitter {
       case 'erro':
         if (this.erroEscuta) return this.erroEscuta
         if (this.erroFatal) return `${this.erroFatal} Confira a chave em Configurações → Bíblia automática e ligue de novo.`
-        return 'Falta a chave do ElevenLabs (Configurações → Bíblia automática).'
+        return this.local()
+          ? 'Falta baixar o Whisper (Configurações → Bíblia automática → Baixar).'
+          : 'Falta a chave do ElevenLabs (Configurações → Bíblia automática).'
       case 'iniciando':
         return 'Abrindo o microfone…'
       case 'pausado':

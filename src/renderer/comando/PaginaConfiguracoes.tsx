@@ -40,7 +40,7 @@ import { urlMidia } from '../../shared/midia'
 import { TelaEspera } from '../compartilhado/Camadas'
 import { api } from '../compartilhado/ganchos'
 import { mensagemDeErro } from './acoes'
-import { TestesTranscricao } from './BibliaAutomatica'
+import { TestesTranscricao, WhisperLocal } from './BibliaAutomatica'
 import { FormularioEsquema } from './FormularioEsquema'
 import { SecaoRemoto } from './Remoto'
 import { BarraProgresso, Botao, Secao } from './ui'
@@ -79,7 +79,7 @@ const PASTAS: Array<{ id: IdPasta; titulo: string; descricao: string; icone: Luc
     icone: Sparkles,
     resumo: (c) => {
       const t = c.transcricao
-      if (!t.escuta.chaveElevenLabs.trim()) return 'Sem a chave do ElevenLabs'
+      if (t.escuta.motor === 'elevenlabs' && !t.escuta.chaveElevenLabs.trim()) return 'Sem a chave do ElevenLabs'
       if (!t.ia.modelo.trim() || (t.ia.tipo === 'anthropic' && !t.ia.chave.trim())) return 'Sem a IA (só referências ditas)'
       return `${t.ia.modelo} · a cada ${t.ia.intervaloS} s · ${t.ia.janelaS} s de fala`
     },
@@ -239,7 +239,7 @@ function ConteudoPasta({ pasta, config, salvar }: { pasta: IdPasta; config: Conf
           >
             <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-texto">
               <li>
-                A fala do microfone vira texto (ElevenLabs). As referências ditas (“João 3:16”, “versículo 17”) aparecem na hora; a IA lê os últimos segundos de fala e
+                A fala do microfone vira texto neste computador (Whisper, sem internet e sem custo) ou na nuvem (ElevenLabs). As referências ditas (“João 3:16”, “versículo 17”) aparecem na hora; a IA lê os últimos segundos de fala e
                 sugere os versículos ligados ao que foi dito.
               </li>
               <li>O texto que vai para a tela sempre vem da Bíblia do programa: a IA só aponta a referência.</li>
@@ -249,7 +249,13 @@ function ConteudoPasta({ pasta, config, salvar }: { pasta: IdPasta; config: Conf
             </ul>
           </Secao>
           <Secao titulo="Transcrição (fala → texto)">
-            <FormularioEsquema esquema={EsquemaTranscricaoEscuta} valor={t.escuta} aoMudar={(escuta) => salvar({ ...config, transcricao: { ...t, escuta } })} />
+            <FormularioEsquema
+              esquema={EsquemaTranscricaoEscuta}
+              valor={t.escuta}
+              omitir={t.escuta.motor === 'local' ? ['chaveElevenLabs'] : ['modeloLocal', 'threadsLocal']}
+              aoMudar={(escuta) => salvar({ ...config, transcricao: { ...t, escuta } })}
+            />
+            {t.escuta.motor === 'local' && <WhisperLocal modelo={t.escuta.modeloLocal} />}
           </Secao>
           <Secao titulo="IA (escolha dos versículos)" descricao="Qualquer API no formato da Anthropic ou compatível com OpenAI. A chave fica só neste computador.">
             <FormularioEsquema esquema={EsquemaTranscricaoIA} valor={t.ia} aoMudar={(ia) => salvar({ ...config, transcricao: { ...t, ia } })} />
@@ -257,7 +263,7 @@ function ConteudoPasta({ pasta, config, salvar }: { pasta: IdPasta; config: Conf
           <Secao titulo="Citação direta e economia">
             <FormularioEsquema esquema={EsquemaTranscricaoAuto} valor={t.auto} aoMudar={(auto) => salvar({ ...config, transcricao: { ...t, auto } })} />
           </Secao>
-          <TestesTranscricao />
+          <TestesTranscricao motor={t.escuta.motor} />
         </>
       )
     }

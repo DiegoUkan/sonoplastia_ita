@@ -507,7 +507,8 @@ do telão da transcrição, onde coincidirem.
   dependem desse servidor.
 - **Transcrição em tempo real (feito em 2026-11-16, de outro jeito):** em vez de ler o servidor Python por SSE,
   a "Bíblia automática" foi reescrita dentro do programa (`src/main/transcricao/`): microfone numa janela oculta,
-  ElevenLabs, busca por palavras na memória (sem o `bge-m3`, pesado demais para o PC da igreja) e a IA escolhendo
+  transcrição local pelo Whisper (whisper.cpp na CPU, baixado pelas Configurações; o ElevenLabs ficou como opção),
+  busca por palavras na memória (sem o `bge-m3`, pesado demais para o PC da igreja) e a IA escolhendo
   as passagens. Página Bíblia com `Manual | Automático` e a vista "Sugestões"; tudo configurável em Configurações →
   Bíblia automática; citação direta pode ir sozinha para a tela. O texto sempre vem da Bíblia daqui, nunca da IA.
   Próximo passo avaliado: seguir a leitura e passar sozinho para o próximo versículo (ver CLAUDE.md).

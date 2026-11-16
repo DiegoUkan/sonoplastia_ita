@@ -279,6 +279,14 @@ saída).
   - Microfone numa janela oculta própria (`escuta.html`, AudioWorklet, 100 ms em 16 kHz), aberta só no Automático.
     Processo principal: `src/main/transcricao/` (porta de voz, ElevenLabs, índice BM25 na memória, IA, analisador,
     serviço). Leitor de referências faladas portado do Python em `src/shared/biblia/falada.ts`.
+- **2026-11-16 (tarde): transcrição LOCAL com o Whisper (whisper.cpp), agora o padrão.** Testado com Vitest (252; 10
+  novos em `tests/whisper.test.ts` com um servidor de mentira), typecheck, build, **download de verdade pelo instalador
+  do programa** (19 arquivos, 73,8 MB, SHA-256 conferido) e autoteste com o **Whisper de verdade** (passo
+  `transcricao-local`): o microfone de mentira tocou uma pregação em voz sintética ("Irmãos, abram a Bíblia comigo em
+  Filipenses, capítulo quatro, versículo seis…") e Filipenses 4:6 foi para a tela sozinho ~1 s depois do fim da frase;
+  Habacuque 3:17 e 1 Coríntios 13:4 também. Corrigido no caminho: o ponto final que o Whisper põe ao cortar na pausa
+  ("…em Filipenses." | "Capítulo 4, versículo 6.") escondia o livro do trecho seguinte. **Ainda não rodou no PC da
+  igreja** (ver passo 13).
 
 ## Decisões
 
@@ -411,8 +419,27 @@ saída).
   - Mesmo conteúdo já na biblioteca (sha256): liga o item do site à mídia existente sem tomar conta dela.
 - **Bíblia automática (2026-11-16)** — reescrita no Electron (não chama o servidor Python, como o PLANO previa).
   Substitui a decisão de 15/11 "sugere, nunca projeta sozinho": em 16/11 o usuário pediu a opção de pôr na tela.
-  - **Só ElevenLabs** (Scribe v2 Realtime, WebSocket com `xi-api-key` no cabeçalho; o WebSocket do Node no Electron 45
-    aceita cabeçalhos). O Whisper local precisa de GPU: não serve no PC da igreja.
+  - **Transcrição LOCAL por padrão** (pedido do usuário em 16/11: "precisava que a transcrição de palavras fosse
+    local"): **whisper.cpp na CPU**, modelo **base** com **2 núcleos** (`src/main/transcricao/whisper.ts`). O ElevenLabs
+    (Scribe v2 Realtime, WebSocket com `xi-api-key` no cabeçalho, que o WebSocket do Node no Electron 45 aceita) ficou
+    como opção ("Onde a fala vira texto"). A IA que escolhe os versículos continua pela internet.
+  - Whisper: o programa baixa pelas Configurações o executável oficial (`whisper-bin-x64.zip` do release de build
+    `b5454` = v1.9.5; extrai só o `whisper-server.exe` e as DLLs) e o modelo, para `C:\Sonoplastia\whisper`
+    (`bin\`, `modelos\`), **conferindo o SHA-256 fixado no código** (arquivo diferente é apagado). O `whisper-server`
+    abre ao ligar o Automático (modelo carregado em ~0,3 s), com prioridade baixa e só em 127.0.0.1, e fecha no
+    Manual. Cada frase (cortada nas pausas de 0,5 s; no máximo 17 s; fala mínima 0,6 s) vai por HTTP; `-ac 900`
+    (janela de 18 s em vez de 30) deixa ~40% mais rápido. Prompt com os nomes dos livros. Fila > 30 s = frases mais
+    velhas descartadas com aviso. Frases que o Whisper inventa no silêncio ("Legendas pela comunidade Amara.org",
+    "Obrigado.") e palavras repetidas sem parar são limpas (`limparTextoWhisper`).
+  - **Medido em 16/11** (frases de 6–18 s de voz sintética em português; Ryzen 5 7600 com 2 threads ≈ 2,5× o i3):
+    base ~0,9 s por frase (~2,3 s no i3: dá conta); small ~3,1 s (~7,5 s no i3: no limite, ocuparia a CPU). O base
+    erra grafias ("voças peticões"), mas acerta as referências ("Habacuque 3, 17", "Filipenses, capítulo 4,
+    versículo 6"); o small acerta a leitura literal. Transcrição do áudio inteiro de uma vez (whisper-cli) pulou uma
+    frase no small: por isso frase por frase.
+  - O Whisper **não manda texto parcial**: o texto aparece ~1 s (aqui) a ~2,5 s (i3) depois do fim de cada frase
+    (enquanto isso a fala ao vivo mostra "…"). Isso pesa no 2º passo ("seguir a leitura").
+  - Rodar o executável baixado no PC de desenvolvimento precisou de autorização do usuário (o classificador de
+    segurança bloqueou a primeira vez); no programa, quem baixa é o operador, pelo botão.
   - **Sem a busca por tema com vetores** (bge-m3 = ~2,3 GB de RAM e torch). Candidatos pela busca por palavras (BM25 na
     memória, todas as versões juntas, ~0,6 s para montar, só no Automático) + pares de palavras seguidas (leitura
     literal). O tema fica com a IA, que pode sugerir fora dos candidatos se tiver certeza da referência.
@@ -478,7 +505,9 @@ cheia, sorteio, painel da letra, pergunta da versão, painel das luzes só lendo
 recolhida; emergência. O passo da Bíblia também captura a tabela (`3b-biblia-tabela`). Bíblia automática (passo
 `transcricao`, PNGs `T*`): microfone de mentira do Chromium tocando um .wav gerado na hora (ou
 `SONOPLASTIA_AUTOTESTE_AUDIO`), ElevenLabs e IA de mentira (nada sai do PC), e "Testar a IA" nos dois formatos contra
-um servidor local. `SONOPLASTIA_AUTOTESTE_BIBLIA` aponta outro ARA.json (neste PC de desenvolvimento:
+um servidor local. Passo `transcricao-local` (PNGs `T4`, `T5`): o Whisper de verdade, se estiver em
+`<SONOPLASTIA_DADOS>\whisper` (baixar uma vez pelo botão das Configurações e copiar a pasta), ouvindo o
+`SONOPLASTIA_AUTOTESTE_AUDIO` (uma pregação gravada; sem ele, só um tom). `SONOPLASTIA_AUTOTESTE_BIBLIA` aponta outro ARA.json (neste PC de desenvolvimento:
 `Z:\Arquivos\Projetos\Hermes\Transcrição_igreja\data\biblia\ARA.json`).
 `SONOPLASTIA_AUTOTESTE_PULAR=apresentacao,video` pula passos. **Abre o PowerPoint
 (oculto) e pesa no computador: não rodar durante o culto.** Janela oculta só
@@ -594,6 +623,13 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
       versículo, em ordem (as de ligação não contam), e boa parte do versículo atual já lida.
     Regra geral: na dúvida, não passa (o operador passa com o Próximo/PageDown, e PageUp desfaz). Mostrar na tela de
     comando o que o programa está seguindo e por quê.
+13. **Transcrição local (Whisper): conferir no PC da igreja** (feito em 2026-11-16, ver Decisões). Configurações →
+    Bíblia automática → "Baixar" (~70 MB, uma vez) → "Testar a velocidade" (bom: até ~4 s por frase; se passar, deixar
+    no base e/ou subir para 3 núcleos e testar de novo). Depois, Bíblia → Automático com a mesa ligada e alguém
+    falando; olhar o Gerenciador de Tarefas durante um vídeo (o `whisper-server` fica com prioridade baixa). Se o base
+    errar demais na leitura e o i3 aguentar, testar o small. Para o 2º passo (passo 12), o Whisper não manda texto
+    parcial: seguir a leitura com ele teria ~2,5 s de atraso no i3 (pensar em frases mais curtas ou no
+    `whisper-stream`, ou usar o ElevenLabs só para isso).
 
 ## Pendências conhecidas
 
@@ -620,6 +656,8 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
   minimizado (fica o botão "Letra no ar").
   O controle remoto do celular ainda não mostra nem passa a liturgia. Sem desfazer: excluir item ou seção
   é na hora (a seção com itens pede confirmação).
+- Whisper local: sem texto parcial; só Windows x64 com CPU (sem GPU); o instalador (Fase 8) ainda não traz o Whisper
+  junto (baixa pelo botão). O executável e os modelos ficam fora do git.
 - Bíblia automática: sem busca por tema com vetores (a IA cuida do tema); `keyterms` do ElevenLabs (nomes dos livros)
   não usados, como no Python; porta de voz por energia (sem modelo de voz: canto e barulho alto também abrem a
   transcrição, mas a IA só é chamada com palavras novas); a liturgia não liga o Automático sozinha; as sugestões

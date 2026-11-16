@@ -369,7 +369,11 @@ export class Rastreador {
       this.ultimoEm = agora
       i = a.fim
     }
-    this.cauda = tokens.length && terminaEmLivro(tokens) ? tokens.slice(-4) : []
+    // o Whisper fecha cada trecho com ponto ("…comigo em Filipenses." | "Capítulo 4, versículo 6."):
+    // a pontuação do fim não esconde o livro
+    const semPontuacao = [...tokens]
+    while (semPontuacao.length && [':', '-', ',', '.'].includes(semPontuacao.at(-1)![0])) semPontuacao.pop()
+    this.cauda = semPontuacao.length && terminaEmLivro(semPontuacao) ? semPontuacao.slice(-4) : []
     return achados
   }
 

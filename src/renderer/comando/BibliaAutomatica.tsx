@@ -2,12 +2,21 @@
  * Bíblia automática na tela de comando: o painel de sugestões da página Bíblia, o indicador na barra
  * de baixo e os testes das Configurações. O trabalho (microfone, transcrição, IA) é do processo principal.
  */
-import { AudioLines, CheckCircle2, Eraser, Mic, MicOff, Pause, Sparkles, XCircle } from 'lucide-react'
+import { AudioLines, CheckCircle2, Download, Eraser, Mic, MicOff, Pause, Sparkles, XCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { EstadoTranscricao, LigacaoSugestao, NivelEscuta, ResultadoTeste, SituacaoEscuta, SugestaoBiblia } from '../../shared/transcricao/tipos'
+import type { Progresso } from '../../shared/dados'
+import type {
+  EstadoTranscricao,
+  InstalacaoWhisper,
+  LigacaoSugestao,
+  NivelEscuta,
+  ResultadoTeste,
+  SituacaoEscuta,
+  SugestaoBiblia,
+} from '../../shared/transcricao/tipos'
 import { api } from '../compartilhado/ganchos'
 import { mensagemDeErro } from './acoes'
-import { Botao, Secao, Selo } from './ui'
+import { BarraProgresso, Botao, Secao, Selo } from './ui'
 
 export function useTranscricao(): EstadoTranscricao | null {
   const [e, setE] = useState<EstadoTranscricao | null>(null)
@@ -240,17 +249,78 @@ function BotaoTeste({ rotulo, testar }: { rotulo: string; testar: () => Promise<
   )
 }
 
+const TAMANHO_MODELO: Record<'base' | 'small', string> = { base: '60 MB', small: '190 MB' }
+
+/** Transcrição local: o que está instalado, baixar (uma vez só) e medir a velocidade neste computador. */
+export function WhisperLocal({ modelo }: { modelo: 'base' | 'small' }) {
+  const [inst, setInst] = useState<InstalacaoWhisper | null>(null)
+  const [baixando, setBaixando] = useState(false)
+  const [progresso, setProgresso] = useState<Progresso | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  useEffect(() => {
+    void api.estadoWhisper().then(setInst)
+  }, [modelo])
+  useEffect(() => api.aoProgresso((p) => p.tarefa === 'whisper' && setProgresso(p.fim ? null : p)), [])
+  if (!inst) return null
+  const pronto = inst.exe && inst.modelos[modelo]
+  const falta = [!inst.exe && 'o Whisper (9 MB)', !inst.modelos[modelo] && `o modelo ${modelo} (${TAMANHO_MODELO[modelo]})`].filter(Boolean)
+  return (
+    <div className="mt-4 rounded-lg border border-borda bg-painel-2 p-3 text-sm">
+      {pronto ? (
+        <span className="flex items-center gap-1.5 text-ok-texto">
+          <CheckCircle2 className="size-4" />
+          Whisper pronto neste computador ({inst.versao}, modelo {modelo}).
+        </span>
+      ) : (
+        <span>Falta baixar {falta.join(' e ')}. É uma vez só: depois a transcrição funciona sem internet.</span>
+      )}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        {!pronto && (
+          <Botao
+            variante="primario"
+            icone={Download}
+            disabled={baixando}
+            onClick={async () => {
+              setBaixando(true)
+              setErro(null)
+              try {
+                setInst(await api.instalarWhisper())
+              } catch (e) {
+                setErro(mensagemDeErro(e))
+              } finally {
+                setBaixando(false)
+              }
+            }}
+          >
+            {baixando ? 'Baixando…' : 'Baixar'}
+          </Botao>
+        )}
+        {pronto && <BotaoTeste rotulo="Testar a velocidade" testar={() => api.testarWhisper()} />}
+      </div>
+      {progresso && (
+        <div className="mt-2.5 max-w-md">
+          <BarraProgresso fracao={progresso.feito / Math.max(1, progresso.total)} texto={`${progresso.texto ?? ''} ${progresso.feito}/${progresso.total}`} />
+        </div>
+      )}
+      {erro && <p className="mt-2 text-perigo-texto">{erro}</p>}
+      <p className="mt-2 text-xs text-suave">
+        Vem do whisper.cpp oficial (GitHub) e do HuggingFace; o programa confere a assinatura (SHA-256) de cada arquivo antes de usar. Fica em {inst.pasta}.
+      </p>
+    </div>
+  )
+}
+
 /** Testes rápidos nas Configurações (as opções são gravadas antes de testar). */
-export function TestesTranscricao() {
+export function TestesTranscricao({ motor }: { motor: 'local' | 'elevenlabs' }) {
   return (
     <Secao
       titulo="Chaves e testes"
-      descricao="“Copiar do projeto de transcrição” traz as chaves e os ajustes do programa em Python que já estava configurado neste computador. O teste da IA faz uma chamada pequena (fração de centavo); o do ElevenLabs só abre a conexão."
+      descricao="“Copiar do projeto de transcrição” traz as chaves e os ajustes do programa em Python que já estava configurado neste computador. O teste da IA faz uma chamada pequena (fração de centavo)."
     >
       <div className="flex flex-col gap-3">
         <BotaoTeste rotulo="Copiar do projeto de transcrição" testar={() => api.copiarDoProjetoTranscricao()} />
         <BotaoTeste rotulo="Testar a IA" testar={() => api.testarIA()} />
-        <BotaoTeste rotulo="Testar o ElevenLabs" testar={() => api.testarElevenLabs()} />
+        {motor === 'elevenlabs' && <BotaoTeste rotulo="Testar o ElevenLabs" testar={() => api.testarElevenLabs()} />}
       </div>
     </Secao>
   )

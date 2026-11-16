@@ -96,7 +96,7 @@ export interface ArquivoBibliaEncontrado {
 
 /** Andamento de uma tarefa longa (importação, conversão). */
 export interface Progresso {
-  tarefa: 'louvorja' | 'biblia' | 'midias' | 'apresentacoes' | 'site'
+  tarefa: 'louvorja' | 'biblia' | 'midias' | 'apresentacoes' | 'site' | 'whisper'
   feito: number
   total: number
   texto?: string

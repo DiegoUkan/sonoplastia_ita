@@ -111,6 +111,9 @@ const api: ApiSonoplastia = {
   listarModelosIA: chamar(CANAIS.listarModelosIA),
   testarElevenLabs: chamar(CANAIS.testarElevenLabs),
   copiarDoProjetoTranscricao: chamar(CANAIS.copiarDoProjetoTranscricao),
+  estadoWhisper: chamar(CANAIS.estadoWhisper),
+  instalarWhisper: chamar(CANAIS.instalarWhisper),
+  testarWhisper: chamar(CANAIS.testarWhisper),
 
   aoPedidoSonda: (cb) => ouvir(CANAIS.sondaPedido, cb),
   responderSonda: (r) => ipcRenderer.send(CANAIS.sondaResultado, r),
