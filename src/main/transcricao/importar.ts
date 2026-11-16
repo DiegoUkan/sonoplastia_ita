@@ -1,14 +1,17 @@
 /**
- * Copia as chaves e o jeito de usar do projeto de transcrição (`..\Transcrição_tempo_real`), que já
- * estava configurado neste computador: `data/config.json` (painel) e `.env`. Os valores nunca vão
- * para o log nem para a tela; só o nome do que foi copiado.
+ * Copia as chaves e os ajustes do projeto de transcrição em Python (`..\Transcrição_tempo_real`), que já
+ * estava configurado neste computador: `data/config.json` (painel) e `.env`. Os valores nunca vão para o
+ * log nem para a tela; só o nome do que foi copiado. (Ideia da outra sessão de 2026-11-15, adaptada.)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ConfigTranscricao } from '../../shared/config'
 
+/** onde o projeto fica no PC da igreja */
 export const PASTA_TRANSCRICAO = join(homedir(), 'Documents', 'Projetos', 'Transcrição_tempo_real')
+
+export const ehProjetoTranscricao = (pasta: string) => existsSync(join(pasta, 'data', 'config.json')) || existsSync(join(pasta, '.env'))
 
 /** KEY=valor por linha (aspas opcionais; # comenta). */
 export function lerEnv(texto: string): Record<string, string> {
@@ -21,27 +24,19 @@ export function lerEnv(texto: string): Record<string, string> {
   return r
 }
 
-export interface ResultadoImportacaoTranscricao {
-  /** a configuração com o que veio de lá */
+export interface ResultadoCopia {
   config: ConfigTranscricao
-  /** nomes do que foi copiado ("chave da ElevenLabs", "rigor 50%"…) */
+  /** nomes do que foi copiado ("chave do ElevenLabs", "rigor 55%"…) */
   copiado: string[]
   avisos: string[]
 }
 
-export function importarDoProjetoTranscricao(atual: ConfigTranscricao, pasta = PASTA_TRANSCRICAO): ResultadoImportacaoTranscricao {
+export function copiarDoProjeto(atual: ConfigTranscricao, pasta: string): ResultadoCopia {
+  if (!ehProjetoTranscricao(pasta)) throw new Error(`Não achei o projeto de transcrição em ${pasta}.`)
   const arqConfig = join(pasta, 'data', 'config.json')
   const arqEnv = join(pasta, '.env')
-  if (!existsSync(arqConfig) && !existsSync(arqEnv)) throw new Error(`Não achei o projeto de transcrição em ${pasta}.`)
   const env = existsSync(arqEnv) ? lerEnv(readFileSync(arqEnv, 'utf8')) : {}
-  let painel: {
-    elevenlabs_chave?: unknown
-    rigor?: unknown
-    intervalo_s?: unknown
-    janela_s?: unknown
-    ia_ativa?: unknown
-    ia?: { tipo?: unknown; url?: unknown; chave?: unknown; modelo?: unknown }
-  } = {}
+  let painel: Record<string, unknown> & { ia?: Record<string, unknown> } = {}
   if (existsSync(arqConfig)) {
     try {
       painel = JSON.parse(readFileSync(arqConfig, 'utf8').replace(/^﻿/, ''))
@@ -49,46 +44,49 @@ export function importarDoProjetoTranscricao(atual: ConfigTranscricao, pasta = P
       throw new Error('O data/config.json do projeto de transcrição está ilegível.')
     }
   }
-  const c: ConfigTranscricao = { ...atual }
-  const copiado: string[] = []
-  const avisos: string[] = []
   const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
   const inteiro = (v: unknown, min: number, max: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : null)
+  const c: ConfigTranscricao = { escuta: { ...atual.escuta }, ia: { ...atual.ia }, auto: { ...atual.auto } }
+  const copiado: string[] = []
+  const avisos: string[] = []
 
   const chave11 = texto(painel.elevenlabs_chave) || texto(env.ELEVENLABS_API_KEY)
   if (chave11) {
-    c.elevenlabsChave = chave11
-    copiado.push('chave da ElevenLabs')
+    c.escuta.chaveElevenLabs = chave11
+    copiado.push('chave do ElevenLabs')
   }
   const ia = painel.ia ?? {}
-  const tipo = texto(ia.tipo) || 'anthropic'
-  if (tipo === 'anthropic') {
-    const chaveIa = texto(ia.chave) || texto(env.ANTHROPIC_API_KEY)
-    if (chaveIa) {
-      c.iaChave = chaveIa
-      copiado.push('chave da IA')
-    }
-    if (typeof ia.url === 'string') {
-      c.iaUrl = texto(ia.url)
-      if (c.iaUrl) copiado.push('endereço da IA')
-    }
-    if (texto(ia.modelo)) {
-      c.iaModelo = texto(ia.modelo)
-      copiado.push(`modelo ${c.iaModelo}`)
-    }
-  } else {
-    avisos.push('A IA de lá é do tipo "compatível com OpenAI", que este programa não usa: a chave da IA não foi copiada.')
+  const tipo = texto(ia.tipo) === 'openai' ? 'openai' : 'anthropic'
+  c.ia.tipo = tipo
+  const chaveIa = texto(ia.chave) || (tipo === 'anthropic' ? texto(env.ANTHROPIC_API_KEY) : '')
+  if (chaveIa) {
+    c.ia.chave = chaveIa
+    copiado.push('chave da IA')
   }
-  if (typeof painel.ia_ativa === 'boolean') c.iaAtiva = painel.ia_ativa
+  if (typeof ia.url === 'string') {
+    c.ia.url = texto(ia.url)
+    if (c.ia.url) copiado.push('URL da API')
+  }
+  if (texto(ia.modelo)) {
+    c.ia.modelo = texto(ia.modelo)
+    copiado.push(`modelo ${c.ia.modelo}`)
+  }
   const rigor = inteiro(painel.rigor, 0, 100)
   if (rigor !== null) {
-    c.rigor = rigor
+    c.ia.rigor = rigor
     copiado.push(`rigor ${rigor}%`)
   }
-  const intervalo = inteiro(painel.intervalo_s, 3, 60)
-  if (intervalo !== null) c.intervaloS = intervalo
-  const janela = inteiro(painel.janela_s, 10, 120)
-  if (janela !== null) c.janelaS = janela
-  if (!copiado.length) avisos.push('Não achei nenhuma chave lá.')
+  const intervalo = inteiro(painel.intervalo_s, 3, 120)
+  if (intervalo !== null) {
+    c.ia.intervaloS = intervalo
+    copiado.push(`IA a cada ${intervalo} s`)
+  }
+  const janela = inteiro(painel.janela_s, 10, 180)
+  if (janela !== null) {
+    c.ia.janelaS = janela
+    copiado.push(`${janela} s de fala`)
+  }
+  if (painel.ia_ativa === false) avisos.push('Lá a IA estava desligada; aqui ela fica ligada quando há chave e modelo.')
+  if (!chave11 && !chaveIa) avisos.push('Não achei nenhuma chave lá.')
   return { config: c, copiado, avisos }
 }

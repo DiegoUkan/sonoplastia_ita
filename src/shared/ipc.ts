@@ -19,7 +19,7 @@ import type {
 import type { Alvo, ArquivoEscolhido, Comando, EstadoMotor, EstadoTelas, Telemetria, VersaoMusica } from './estado'
 import type { EstadoLuz } from './iluminacao'
 import type { EstadoSite } from './site'
-import type { AvisoEscuta, EstadoTranscricao, ParcialTranscricao, ResultadoTesteIa } from './transcricao'
+import type { EstadoTranscricao, NivelEscuta, ResultadoTeste } from './transcricao/tipos'
 
 export const CANAIS = {
   comando: 'motor:comando',
@@ -97,24 +97,41 @@ export const CANAIS = {
   alternarLuz: 'luz:alternar',
   cenarioLuz: 'luz:cenario',
   abrirPaginaLuz: 'luz:abrir-pagina',
-  // sugestões de versículos ao vivo (transcrição da fala)
-  estadoTranscricao: 'transcricao:estado',
-  transcricaoMudou: 'transcricao:mudou',
-  transcricaoParcial: 'transcricao:parcial',
-  ligarTranscricao: 'transcricao:ligar',
-  limparSugestoes: 'transcricao:limpar',
-  testarIaTranscricao: 'transcricao:testar-ia',
-  importarConfigTranscricao: 'transcricao:importar-config',
-  escutaAudio: 'escuta:audio',
-  escutaAviso: 'escuta:aviso',
   // controle remoto (celular)
   statusRemoto: 'remoto:status',
   remotoMudou: 'remoto:mudou',
   passador: 'remoto:passador',
+  // Bíblia automática (transcrição + IA)
+  transcricaoLigar: 'transcricao:ligar',
+  obterTranscricao: 'transcricao:obter',
+  transcricao: 'transcricao:mudou',
+  nivelTranscricao: 'transcricao:nivel',
+  contextoTranscricao: 'transcricao:contexto',
+  limparSugestoes: 'transcricao:limpar',
+  testarIA: 'transcricao:testar-ia',
+  listarModelosIA: 'transcricao:modelos',
+  testarElevenLabs: 'transcricao:testar-elevenlabs',
+  copiarDoProjetoTranscricao: 'transcricao:copiar-do-projeto',
   // janelas internas
   sondaPedido: 'sonda:pedido',
   sondaResultado: 'sonda:resultado',
+  /** janela oculta que captura o microfone */
+  escutaConfig: 'escuta:config',
+  escutaAudio: 'escuta:audio',
+  escutaStatus: 'escuta:status',
 } as const
+
+/** O que a janela de escuta recebe: o microfone a abrir (null = fechar). */
+export interface PedidoEscuta {
+  microfone: string
+}
+
+export interface StatusEscuta {
+  ok: boolean
+  erro?: string
+  /** nome do microfone aberto */
+  microfone?: string
+}
 
 export type TipoArquivo = 'imagem' | 'video'
 
@@ -217,29 +234,38 @@ export interface ApiSonoplastia {
   importarFundoSecao(caminho: string): Promise<string>
   aoMudarLiturgias(cb: () => void): () => void
 
-  /** sugestões de versículos ao vivo: estado, sugestões e o que está sendo dito */
-  estadoTranscricao(): Promise<EstadoTranscricao>
-  aoMudarTranscricao(cb: (e: EstadoTranscricao) => void): () => void
-  aoParcialTranscricao(cb: (p: ParcialTranscricao) => void): () => void
-  /** liga ou desliga "ouvir e sugerir" */
-  ligarTranscricao(ligar: boolean): Promise<void>
-  limparSugestoes(): Promise<void>
-  testarIaTranscricao(): Promise<ResultadoTesteIa>
-  /** copia as chaves do projeto de transcrição para as configurações; devolve o que foi copiado */
-  importarConfigTranscricao(): Promise<{ copiado: string[]; avisos: string[] }>
-  /** só a janela de escuta usa: áudio PCM 16 bits, 16 kHz */
-  enviarAudioEscuta(pcm: Uint8Array): void
-  avisarEscuta(a: AvisoEscuta): void
-
   /** controle remoto: endereço, PIN e quantos celulares estão conectados */
   statusRemoto(): Promise<StatusRemoto>
   aoMudarRemoto(cb: (s: StatusRemoto) => void): () => void
   /** o passador do celular: a tela de comando trata como PageDown/PageUp na página aberta */
   aoPassador(cb: (d: DirecaoPassador) => void): () => void
 
+  /** Bíblia automática: liga (automático) ou desliga (manual) a escuta; devolve o estado */
+  ligarTranscricao(sim: boolean): Promise<EstadoTranscricao>
+  obterTranscricao(): Promise<EstadoTranscricao>
+  aoMudarTranscricao(cb: (e: EstadoTranscricao) => void): () => void
+  /** nível do microfone (~5 vezes por segundo, só com a escuta ligada) */
+  aoNivelTranscricao(cb: (n: NivelEscuta) => void): () => void
+  /** "Enviar para" e versão da página Bíblia: a citação direta vai para lá */
+  contextoTranscricao(c: { alvo?: string; sigla?: string }): Promise<void>
+  limparSugestoes(): Promise<void>
+  testarIA(): Promise<ResultadoTeste>
+  listarModelosIA(): Promise<Array<{ id: string; nome: string }>>
+  testarElevenLabs(): Promise<ResultadoTeste>
+  /**
+   * Copia as chaves e os ajustes do projeto de transcrição em Python que já estava configurado neste
+   * computador (pergunta a pasta se não achar). Devolve só os nomes do que foi copiado, nunca os valores.
+   */
+  copiarDoProjetoTranscricao(): Promise<ResultadoTeste>
+
   /** só a janela-sonda usa */
   aoPedidoSonda(cb: (p: PedidoSonda) => void): () => void
   responderSonda(r: ResultadoSonda): void
+
+  /** só a janela de escuta usa */
+  aoPedidoEscuta(cb: (p: PedidoEscuta | null) => void): () => void
+  enviarAudioEscuta(pcm: ArrayBuffer): void
+  statusEscuta(s: StatusEscuta): void
 }
 
 export interface PedidoSonda {

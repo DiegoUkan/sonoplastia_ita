@@ -9,7 +9,7 @@ import { conteudoDoVersiculo } from '../../shared/biblia/mostrar'
 import { formatarReferencia, interpretarReferencia } from '../../shared/biblia/referencia'
 import type { ResultadoBuscaBiblia, VersaoBiblia, VersiculoTexto } from '../../shared/dados'
 import type { ConfigPublica } from '../../shared/remoto'
-import { type EstadoTranscricao, ROTULO_LIGACAO, type SugestaoVersiculo } from '../../shared/transcricao'
+import type { EstadoTranscricao, LigacaoSugestao, SugestaoBiblia } from '../../shared/transcricao/tipos'
 import { Botao, Interruptor } from '../comando/ui'
 import { api } from './cliente'
 
@@ -171,7 +171,7 @@ export function AbaBiblia({
   }
 
   /** Sugestão tocada: abre o capítulo e mostra o primeiro versículo (o passador segue pelos outros). */
-  const usarSugestao = async (s: SugestaoVersiculo) => {
+  const usarSugestao = async (s: SugestaoBiblia) => {
     setTexto('')
     const c = await abrirCapitulo(s.livro, s.capitulo)
     if (c && s.inicio) await mostrar(c, s.inicio)
@@ -312,7 +312,19 @@ export function AbaBiblia({
   )
 }
 
-/** Sugestões ao vivo no celular: ligar/desligar a escuta e tocar numa sugestão para mostrar. */
+const ROTULO_LIGACAO: Record<LigacaoSugestao, string> = {
+  citada: 'Dita',
+  leitura: 'Lido',
+  citacao: 'Citação',
+  parafrase: 'Paráfrase',
+  alusao: 'Alusão',
+  tema_central: 'Tema central',
+  tema_relacionado: 'Tema',
+  distante: 'Distante',
+  '': 'IA',
+}
+
+/** Sugestões ao vivo no celular: Automático (ouvir) ou Manual e tocar numa sugestão para mostrar. */
 function SugestoesRemoto({
   estado,
   parcial,
@@ -324,16 +336,21 @@ function SugestoesRemoto({
   parcial: string
   noAr: NoAr | null
   tentar: (p: Promise<unknown>) => void
-  aoUsar: (s: SugestaoVersiculo) => void
+  aoUsar: (s: SugestaoBiblia) => void
 }) {
   const [todas, setTodas] = useState(false)
   if (!estado) return null
   const ligado = estado.ligado
   const lista = todas ? estado.sugestoes : estado.sugestoes.slice(0, 4)
-  const textoFase =
-    estado.fase === 'parado' ? 'Desligado' : estado.fase === 'ouvindo' ? 'Ouvindo o pregador' : estado.mensagem || (estado.fase === 'erro' ? 'Erro' : 'Preparando…')
+  const textoFase = estado.situacao === 'desligado' ? 'Manual (desligado)' : estado.mensagem
   const cor =
-    estado.fase === 'ouvindo' ? 'bg-ok' : estado.fase === 'erro' ? 'bg-perigo' : estado.fase === 'parado' ? 'bg-apagado' : 'animate-pulse bg-aviso'
+    estado.situacao === 'ouvindo'
+      ? 'bg-ok'
+      : estado.situacao === 'erro'
+        ? 'bg-perigo'
+        : estado.situacao === 'desligado' || estado.situacao === 'espera'
+          ? 'bg-apagado'
+          : 'animate-pulse bg-aviso'
 
   return (
     <section className="flex flex-col gap-2 rounded-xl border border-borda bg-painel p-3">
@@ -341,25 +358,25 @@ function SugestoesRemoto({
         <Sparkles className="size-4 text-destaque-texto" />
         <span className="text-sm font-semibold">Sugestões ao vivo</span>
         <span className="ml-auto flex items-center gap-2 text-xs text-suave">
-          Ouvir
+          Automático
           <Interruptor ligado={ligado} aoMudar={(v) => tentar(api.ligarTranscricao(v))} rotulo="Ouvir o pregador e sugerir versículos" />
         </span>
       </div>
       <div className="flex items-start gap-2 text-xs">
         <span className={`mt-1 size-2 shrink-0 rounded-full ${cor}`} />
-        <span className={estado.fase === 'erro' ? 'text-perigo-texto' : 'text-suave'}>{textoFase}</span>
+        <span className={estado.situacao === 'erro' ? 'text-perigo-texto' : 'text-suave'}>{textoFase}</span>
       </div>
       {estado.aviso && <p className="rounded bg-aviso/15 px-2 py-1 text-xs text-aviso-texto">{estado.aviso}</p>}
       {ligado && (parcial || estado.falas.length > 0) && (
         <p className="line-clamp-2 rounded-lg bg-painel-2 px-2 py-1.5 text-xs text-suave">
-          {parcial ? <i className="text-texto">{parcial}</i> : estado.falas[estado.falas.length - 1]}
+          {parcial ? <i className="text-texto">{parcial}</i> : estado.falas[estado.falas.length - 1]?.texto}
         </p>
       )}
       {lista.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {lista.map((s) => {
             const ativo = !!noAr && noAr.livro === s.livro && noAr.capitulo === s.capitulo && s.inicio !== null && noAr.versiculo >= s.inicio && noAr.versiculo <= (s.fim ?? s.inicio)
-            const rotulo = s.origem === 'citada' ? 'Dita' : (ROTULO_LIGACAO[s.ligacao] ?? 'IA')
+            const rotulo = ROTULO_LIGACAO[s.ligacao] ?? 'IA'
             return (
               <button
                 key={s.id}
@@ -374,7 +391,7 @@ function SugestoesRemoto({
                     {new Date(s.hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
-                {s.previa && <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-suave">{s.previa}</p>}
+                {s.texto && <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-suave">{s.texto}</p>}
               </button>
             )
           })}

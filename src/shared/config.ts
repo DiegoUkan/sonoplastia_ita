@@ -4,9 +4,10 @@
  * Cada opção tem tipo, valor padrão e textos (`title`, `description`) para a tela de configurações,
  * que é gerada a partir deste esquema (`z.toJSONSchema`). Opção sem `title` não aparece na tela.
  * Chaves extras usadas pela tela:
- *   'x-ui'     'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'microfone' | 'versao-biblia' | 'pasta' | 'segredo'
- *   'x-placeholder' texto de exemplo do campo (texto e segredo)
+ *   'x-ui'     'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'dispositivo-entrada' | 'versao-biblia' | 'pasta'
+ *              | 'segredo' | 'modelo-ia'
  *   'x-passo'  passo do controle deslizante
+ *   'x-dica'   texto de exemplo dentro do campo vazio
  *   'x-opcoes' rótulos das opções de um enum
  * Para criar uma opção nova, basta acrescentá-la aqui com `.default()` e `.meta()`.
  */
@@ -388,55 +389,105 @@ export const EsquemaSite = z.object({
 export type ConfigSite = z.infer<typeof EsquemaSite>
 
 /**
- * Sugestões de versículos ao vivo: a fala do pregador é transcrita pela ElevenLabs e a IA (API da
- * Anthropic) escolhe os versículos. As chaves ficam só no config.json deste computador (nunca no
- * celular, no log nem no GitHub).
+ * Bíblia automática: a fala do microfone vira texto (ElevenLabs) e a IA sugere os versículos.
+ * As chaves ficam só no config.json deste computador: não vão para o controle remoto nem para o log.
  */
-export const EsquemaTranscricao = z.object({
-  elevenlabsChave: z.string().max(300).default('').meta({
-    title: 'Chave da ElevenLabs',
-    description: 'Transcreve a fala do pregador (ElevenLabs Scribe, cerca de US$ 0,40 por hora ouvindo).',
+export const EsquemaTranscricaoEscuta = z.object({
+  chaveElevenLabs: z.string().max(300).default('').meta({
+    title: 'Chave do ElevenLabs',
+    description: 'O ElevenLabs transforma a fala em texto (cerca de US$ 0,40 por hora de fala). Só é cobrado enquanto alguém fala.',
     'x-ui': 'segredo',
-    'x-placeholder': 'sk_…',
+    'x-dica': 'cole a chave aqui',
   }),
   microfone: z.string().default('').meta({
-    title: 'Microfone ou entrada de áudio',
-    description: 'De onde vem a voz do pregador. O melhor é ligar a saída da mesa de som na entrada de linha do computador.',
-    'x-ui': 'microfone',
+    title: 'Microfone',
+    description: 'De onde vem a voz do pregador. O melhor é a saída da mesa de som; um microfone na sala também serve.',
+    'x-ui': 'dispositivo-entrada',
   }),
-  iaAtiva: z.boolean().default(true).meta({
-    title: 'Usar a IA para escolher os versículos',
-    description: 'Sem a IA, só aparecem as referências ditas em voz alta ("João 3:16") e as citações quase literais.',
+})
+export type ConfigTranscricaoEscuta = z.infer<typeof EsquemaTranscricaoEscuta>
+
+export const TIPOS_API_IA = ['anthropic', 'openai'] as const
+export type TipoApiIA = (typeof TIPOS_API_IA)[number]
+
+export const EsquemaTranscricaoIA = z.object({
+  tipo: z.enum(TIPOS_API_IA).default('anthropic').meta({
+    title: 'Formato da API',
+    'x-opcoes': { anthropic: 'Anthropic (Claude)', openai: 'Compatível com OpenAI (OpenRouter, New API, Ollama…)' },
   }),
-  iaUrl: z.string().max(500).default('').meta({
-    title: 'Endereço da API da IA',
-    description: 'Em branco usa a Anthropic (api.anthropic.com). Pode ser um servidor próprio que fale a API da Anthropic.',
-    'x-placeholder': 'https://api.anthropic.com',
+  url: z.string().max(500).default('').meta({
+    title: 'URL da API',
+    description: 'Em branco, o endereço oficial (api.anthropic.com ou api.openai.com). Para um servidor próprio basta o endereço (ex.: http://meu-servidor.com).',
   }),
-  iaChave: z.string().max(500).default('').meta({ title: 'Chave da API da IA', 'x-ui': 'segredo', 'x-placeholder': 'sk-…' }),
-  iaModelo: z.string().max(100).default('claude-haiku-5-5').meta({
-    title: 'Modelo da IA',
-    description: 'claude-haiku-5-5 é o mais barato (cerca de US$ 0,20 a 0,40 por culto de 2 horas).',
+  chave: z.string().max(300).default('').meta({ title: 'Chave da API', 'x-ui': 'segredo', 'x-dica': 'cole a chave aqui' }),
+  modelo: z.string().max(120).default('claude-haiku-5-5').meta({
+    title: 'Modelo',
+    description: 'Um modelo rápido e barato basta: a IA só escolhe referências (o texto sempre vem da Bíblia do programa).',
+    'x-ui': 'modelo-ia',
   }),
-  rigor: z.number().int().min(0).max(100).default(50).meta({
-    title: 'Rigor (%)',
-    description:
-      'Só aparece o que tiver ligação com a fala pelo menos deste tamanho: 100 citação, 85 paráfrase, 70 alusão (história ou frase famosa), 50 tema central, 30 tema relacionado. Referências ditas em voz alta aparecem sempre.',
-    'x-ui': 'deslizante',
-    'x-passo': 5,
-  }),
-  intervaloS: z.number().int().min(3).max(60).default(10).meta({
-    title: 'Pensar de novo a cada (segundos)',
-    description: 'Cada vez é uma chamada à IA (só quando houve fala nova). Menos segundos = sugestões mais rápidas e conta maior.',
+  intervaloS: z.number().int().min(3).max(120).default(5).meta({
+    title: 'Chamar a IA a cada (segundos)',
+    description: 'No máximo uma chamada nesse tempo, e só se houve fala nova. Menos tempo = sugestões mais rápidas e mais chamadas.',
     'x-ui': 'deslizante',
     'x-passo': 1,
   }),
-  janelaS: z.number().int().min(10).max(120).default(45).meta({
-    title: 'Quanto da fala olhar (segundos)',
-    description: 'A IA lê os últimos segundos do que foi dito.',
+  janelaS: z.number().int().min(10).max(180).default(40).meta({
+    title: 'Fala analisada (últimos segundos)',
+    description: 'Quanto da fala recente a IA lê em cada chamada. Mais tempo dá mais contexto e custa mais.',
     'x-ui': 'deslizante',
     'x-passo': 5,
   }),
+  minPalavras: z.number().int().min(3).max(60).default(12).meta({
+    title: 'Palavras novas para chamar a IA',
+    description: 'Pausa curta ou um "amém" não geram outra chamada.',
+    'x-ui': 'deslizante',
+    'x-passo': 1,
+  }),
+  rigor: z.number().int().min(0).max(100).default(55).meta({
+    title: 'Rigor das sugestões (%)',
+    description: '100 = só citação direta; 70 = também alusões (a história, o personagem); 30 = também temas parecidos.',
+    'x-ui': 'deslizante',
+    'x-passo': 5,
+  }),
+})
+export type ConfigTranscricaoIA = z.infer<typeof EsquemaTranscricaoIA>
+
+export const MOSTRAR_SOZINHO = ['nao', 'referencia', 'leitura'] as const
+export type MostrarSozinho = (typeof MOSTRAR_SOZINHO)[number]
+
+export const EsquemaTranscricaoAuto = z.object({
+  mostrarSozinho: z.enum(MOSTRAR_SOZINHO).default('leitura').meta({
+    title: 'Citação direta: pôr na tela sozinho',
+    description:
+      'Vai para o "Enviar para" escolhido no alto da tela. Só troca versículo, texto, imagem ou tela vazia: com vídeo, música, slide, Logo, Preto ou Limpar no ar, fica só a sugestão.',
+    'x-opcoes': {
+      nao: 'Não: só sugere',
+      referencia: 'Quando diz a referência ("João 3:16")',
+      leitura: 'Quando diz a referência ou lê o texto',
+    },
+  }),
+  sensibilidade: z.enum(['alta', 'media', 'baixa']).default('media').meta({
+    title: 'Sensibilidade à voz',
+    description: 'Alta percebe voz mais baixa (e também mais barulho). Baixa só conta voz bem mais alta que o ruído da sala.',
+    'x-opcoes': { alta: 'Alta', media: 'Média', baixa: 'Baixa' },
+  }),
+  silencioS: z.number().int().min(5).max(300).default(20).meta({
+    title: 'Pausar depois de quantos segundos sem fala',
+    description: 'Sem ninguém falando, a transcrição e a IA param (não gastam) e voltam sozinhas na próxima fala.',
+    'x-ui': 'deslizante',
+    'x-passo': 5,
+  }),
+  pausarComMidia: z.boolean().default(true).meta({
+    title: 'Pausar enquanto toca música, áudio ou vídeo pelo programa',
+    description: 'O som que sai pela mesa não é o pregador: não precisa transcrever nem gastar.',
+  }),
+})
+export type ConfigTranscricaoAuto = z.infer<typeof EsquemaTranscricaoAuto>
+
+export const EsquemaTranscricao = z.object({
+  escuta: EsquemaTranscricaoEscuta.prefault({}),
+  ia: EsquemaTranscricaoIA.prefault({}),
+  auto: EsquemaTranscricaoAuto.prefault({}),
 })
 export type ConfigTranscricao = z.infer<typeof EsquemaTranscricao>
 

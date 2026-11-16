@@ -16,6 +16,7 @@ import type { Config } from '../../shared/config'
 import type { Progresso } from '../../shared/dados'
 import { AUDIO, type EstadoMotor, type EstadoTelas, type ModoTela, TODAS } from '../../shared/estado'
 import { api, useAgora, useConfig, useEstado, useTelas, useTelemetrias } from '../compartilhado/ganchos'
+import { IndicadorTranscricao } from './BibliaAutomatica'
 import { EscolhaVersao, FocoLetra } from './FocoMusica'
 import { BotaoLuzes } from './Iluminacao'
 import { IndicadorRemoto, usePassadorRemoto } from './Remoto'
@@ -120,6 +121,10 @@ export function App() {
   }, [])
   useAtalhos(estado, config, teclasPagina)
   usePassadorRemoto()
+  // a citação direta da Bíblia automática vai para o "Enviar para" escolhido aqui
+  useEffect(() => {
+    void api.contextoTranscricao({ alvo })
+  }, [alvo])
 
   const tema = config?.geral.tema ?? 'claro'
   useEffect(() => {
@@ -334,6 +339,7 @@ function BarraStatus({ config, telas, progresso }: { config: Config; telas: Esta
         </span>
       )}
       <IndicadorRemoto />
+      <IndicadorTranscricao />
       <BotaoLuzes config={config} />
       <span className="ml-auto">
         Emergência: <b className="text-texto">{ATALHO_EMERGENCIA.texto}</b> fecha as saídas

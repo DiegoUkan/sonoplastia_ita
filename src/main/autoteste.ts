@@ -6,6 +6,9 @@
  * Saída em SONOPLASTIA_AUTOTESTE (padrão: <pasta de dados>\autoteste).
  */
 import type { BrowserWindow } from 'electron'
+import { EventEmitter } from 'node:events'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -25,7 +28,7 @@ import { importarLouvorJa } from './musicas/louvorJa'
 import type { RepositorioMusicas } from './musicas/repositorio'
 import type { ServidorRemoto } from './remoto/servidor'
 import type { GerenciadorTelas } from './telas/gerenciador'
-import type { MotorSugestoes } from './transcricao/motor'
+import type { ServicoTranscricao } from './transcricao/servico'
 
 interface Contexto {
   motor: Motor
@@ -47,12 +50,45 @@ interface Contexto {
   remoto: ServidorRemoto
   liturgias: RepositorioLiturgias
   executorLiturgia: ExecutorLiturgia
-  /** sugestões de versículos ao vivo (no autoteste, só falas simuladas: nada de microfone nem internet) */
-  transcricao: MotorSugestoes
+  transcricao: ServicoTranscricao
   pasta: string
 }
 
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Microfone de mentira do autoteste (o Chromium toca o arquivo em repetição): 1 s de silêncio, 4 s de
+ * "voz" (220 Hz com harmônicos, subindo e descendo 4 vezes por segundo, como sílabas) e 3 s de silêncio.
+ */
+export function gerarWavDeTeste(caminho: string): void {
+  const taxa = 16000
+  const n = taxa * 8
+  const dados = Buffer.alloc(n * 2)
+  for (let i = 0; i < n; i++) {
+    const t = i / taxa
+    let s = 0
+    if (t >= 1 && t < 5) {
+      const silaba = 0.5 + 0.5 * Math.sin(2 * Math.PI * 4 * t)
+      s = 0.18 * silaba * (Math.sin(2 * Math.PI * 220 * t) + 0.5 * Math.sin(2 * Math.PI * 440 * t) + 0.25 * Math.sin(2 * Math.PI * 660 * t))
+    }
+    dados.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(s * 32767))), i * 2)
+  }
+  const cab = Buffer.alloc(44)
+  cab.write('RIFF', 0)
+  cab.writeUInt32LE(36 + dados.length, 4)
+  cab.write('WAVE', 8)
+  cab.write('fmt ', 12)
+  cab.writeUInt32LE(16, 16)
+  cab.writeUInt16LE(1, 20)
+  cab.writeUInt16LE(1, 22)
+  cab.writeUInt32LE(taxa, 24)
+  cab.writeUInt32LE(taxa * 2, 28)
+  cab.writeUInt16LE(2, 32)
+  cab.writeUInt16LE(16, 34)
+  cab.write('data', 36)
+  cab.writeUInt32LE(dados.length, 40)
+  writeFileSync(caminho, Buffer.concat([cab, dados]))
+}
 
 export async function rodarAutoteste(ctx: Contexto): Promise<void> {
   mkdirSync(ctx.pasta, { recursive: true })
@@ -135,7 +171,7 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
   })
 
   await passo('biblia', async () => {
-    const arq = join(homedir(), 'Documents', 'Projetos', 'Transcrição_tempo_real', 'data', 'biblia', 'ARA.json')
+    const arq = process.env.SONOPLASTIA_AUTOTESTE_BIBLIA || join(homedir(), 'Documents', 'Projetos', 'Transcrição_tempo_real', 'data', 'biblia', 'ARA.json')
     if (!existsSync(arq)) {
       relatorio.biblia = 'ARA.json não encontrado; pulado'
       return
@@ -153,26 +189,6 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tabela')?.click()`)
     await esperar(800)
     await capturar('3b-biblia-tabela', 'comando')
-  })
-
-  // sugestões ao vivo com uma fala simulada (sem microfone, sem ElevenLabs e sem IA)
-  await passo('sugestoes', async () => {
-    if (!ctx.biblia.versoes().length) {
-      relatorio.sugestoes = 'sem Bíblia importada; pulado'
-      return
-    }
-    const t0 = Date.now()
-    await ctx.transcricao.simular('Abram a Bíblia comigo em Filipenses capítulo 4, versículos 6 e 7. E guardem também o Salmo 23.')
-    relatorio.sugestoes = { segundos: (Date.now() - t0) / 1000, sugestoes: ctx.transcricao.estado().sugestoes.map((s) => s.referencia) }
-    await navegar('biblia')
-    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('Sugestões'))?.click()`)
-    await esperar(800)
-    await capturar('3c-biblia-sugestoes', 'comando')
-    // clicar na sugestão põe o primeiro versículo no ar
-    await noComando(`[...document.querySelectorAll('aside button')].find((b) => b.textContent.includes('Filipenses 4:6-7'))?.click()`)
-    await esperar(1500)
-    relatorio.sugestaoNoAr = ctx.motor.estado.saidas.publico?.conteudo
-    await capturar('3d-sugestao-no-ar')
   })
 
   await passo('musica', async () => {
@@ -560,6 +576,119 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     await capturar('F6-luzes', 'comando')
     await noComando(`document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`)
     relatorio.ferramentas = r
+  })
+
+  await passo('transcricao', async () => {
+    // Bíblia automática com o microfone de mentira (.wav), a "transcrição" e a IA de mentira: nada sai do PC
+    const r: Record<string, unknown> = {}
+    // "Testar a IA" de verdade (SDK da Anthropic e formato OpenAI pelo net.fetch do Electron), contra
+    // um servidor de IA de mentira neste computador
+    const respostaIA = '{"passagens":[{"livro":"Jo","capitulo":3,"inicio":16,"fim":16,"ligacao":"citacao","forca":100,"motivo":"lida"}]}'
+    const iaFalsa = createServer((req, res) => {
+      let corpo = ''
+      req.on('data', (d) => (corpo += d))
+      req.on('end', () => {
+        const anthropic = req.url === '/v1/messages'
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify(
+            anthropic
+              ? { id: 'm', type: 'message', role: 'assistant', model: 'x', content: [{ type: 'text', text: respostaIA }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1800, output_tokens: 90 } }
+              : { choices: [{ message: { content: respostaIA } }], usage: { prompt_tokens: 1700, completion_tokens: 80 } },
+          ),
+        )
+      })
+    })
+    await new Promise<void>((ok) => iaFalsa.listen(0, '127.0.0.1', ok))
+    const urlIA = `http://127.0.0.1:${(iaFalsa.address() as AddressInfo).port}`
+    for (const tipo of ['anthropic', 'openai'] as const) {
+      const c0 = ctx.armazem.obter()
+      ctx.armazem.salvar({ ...c0, transcricao: { ...c0.transcricao, ia: { ...c0.transcricao.ia, tipo, url: urlIA, chave: 'chave-de-teste' } } })
+      r[`testarIA-${tipo}`] = await ctx.transcricao.testarIA()
+    }
+    iaFalsa.close()
+    class ConexaoDeTeste extends EventEmitter {
+      abriu = false
+      quadros = 0
+      enviar() {
+        this.quadros++
+      }
+      async encerrar() {}
+      fecharJa() {}
+    }
+    const conexoes: ConexaoDeTeste[] = []
+    ctx.transcricao.paraTeste({
+      criarConexao: () => {
+        const c = new ConexaoDeTeste()
+        conexoes.push(c)
+        setTimeout(() => {
+          c.abriu = true
+          c.emit('aberta')
+        }, 50)
+        return c
+      },
+      criarProvedor: () => ({
+        completarJson: async () => ({
+          dados: { passagens: [{ livro: 'Fp', capitulo: 4, inicio: 6, fim: 7, ligacao: 'tema_central', forca: 60, motivo: 'Ansiedade: entregar tudo a Deus em oração' }] },
+          uso: { entrada: 2100, saida: 120 },
+        }),
+        listarModelos: async () => [],
+      }),
+    })
+    const c = ctx.armazem.obter()
+    ctx.armazem.salvar({
+      ...c,
+      transcricao: {
+        ...c.transcricao,
+        escuta: { ...c.transcricao.escuta, chaveElevenLabs: 'chave-de-teste' },
+        ia: { ...c.transcricao.ia, tipo: 'anthropic', url: '', chave: 'chave-de-teste', intervaloS: 3 },
+      },
+    })
+    // nada tocando (a música do passo anterior pausaria a escuta) e as saídas livres
+    fazer({ tipo: 'musica:fechar' })
+    fazer({ tipo: 'audio', fonte: null })
+    fazer({ tipo: 'mostrar', alvo: 'todas', conteudo: { tipo: 'vazio' } })
+    fazer({ tipo: 'tela', alvo: 'todas', tela: 'normal' })
+    await navegar('biblia')
+    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Automático')?.click()`)
+    const t0 = Date.now()
+    while (Date.now() - t0 < 20_000 && !conexoes.length) await esperar(200)
+    r.abriuEmS = (Date.now() - t0) / 1000
+    r.situacao = ctx.transcricao.obter().situacao
+    r.microfone = ctx.transcricao.obter().microfone
+    const conexao = conexoes[0]
+    if (conexao) {
+      conexao.emit('parcial', 'Vamos abrir a Bíblia em')
+      await esperar(300)
+      conexao.emit('final', 'Vamos abrir a Bíblia em João capítulo três, versículo dezesseis.')
+      await esperar(1000)
+      r.noArDepoisDaReferencia = ctx.motor.estado.saidas.publico?.conteudo
+      conexao.emit('final', 'Quantas vezes a gente vive ansioso, preocupado com tudo, com as contas, com a família, e esquece de entregar isso a Deus em oração.')
+      conexao.emit('parcial', 'Então hoje eu quero')
+      await esperar(4500)
+      r.quadrosEnviados = conexao.quadros
+    }
+    const e = ctx.transcricao.obter()
+    r.sugestoes = e.sugestoes.map((s) => ({ referencia: s.referencia, ligacao: s.ligacao, forca: s.forca, mostrada: s.mostrada }))
+    r.consumo = e.consumo
+    r.mostrado = e.mostrado
+    await capturar('T1-biblia-automatica')
+    // o passador continua do versículo que foi para a tela sozinho
+    await noComando(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }))`)
+    await esperar(1000)
+    r.depoisDoPassador = ctx.motor.estado.saidas.publico?.conteudo
+    await navegar('configuracoes')
+    await noComando(`[...document.querySelectorAll('button')].find((b) => b.textContent.includes('Bíblia automática'))?.click()`)
+    await esperar(1000)
+    await capturar('T2-config-biblia-automatica', 'comando')
+    await noComando(`document.querySelector('main .overflow-y-auto')?.scrollBy(0, 700)`)
+    await esperar(500)
+    await capturar('T3-config-biblia-automatica-baixo', 'comando')
+    await noComando(`[...document.querySelectorAll('button')].find((b) => (b.title || '').startsWith('Voltar para todas'))?.click()`)
+    ctx.transcricao.ligar(false)
+    await esperar(300)
+    r.depoisDeDesligar = ctx.transcricao.obter().situacao
+    relatorio.transcricao = r
   })
 
   await passo('painel-recolhido', async () => {

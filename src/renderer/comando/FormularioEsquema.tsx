@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import type { VersaoBiblia } from '../../shared/dados'
 import { api } from '../compartilhado/ganchos'
+import { mensagemDeErro } from './acoes'
 import { Botao, classeEntrada, Deslizante, Interruptor, useRascunho } from './ui'
 
 interface PropJson {
@@ -16,9 +17,10 @@ interface PropJson {
   description?: string
   minimum?: number
   maximum?: number
-  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'microfone' | 'versao-biblia' | 'pasta' | 'segredo'
-  'x-placeholder'?: string
+  'x-ui'?: 'cor' | 'deslizante' | 'arquivo-imagem' | 'dispositivo-audio' | 'dispositivo-entrada' | 'versao-biblia' | 'pasta' | 'segredo' | 'modelo-ia'
   'x-passo'?: number
+  /** texto de exemplo dentro do campo vazio */
+  'x-dica'?: string
   'x-opcoes'?: Record<string, string>
 }
 
@@ -95,16 +97,18 @@ function Controle({ prop, valor, aoMudar }: { prop: PropJson; valor: unknown; ao
       return <ControleArquivoImagem valor={valor as string | null} aoMudar={aoMudar} />
     case 'dispositivo-audio':
       return <ControleDispositivoAudio valor={String(valor ?? '')} aoMudar={aoMudar} />
-    case 'microfone':
-      return <ControleDispositivoAudio valor={String(valor ?? '')} aoMudar={aoMudar} tipo="audioinput" />
+    case 'dispositivo-entrada':
+      return <ControleMicrofone valor={String(valor ?? '')} aoMudar={aoMudar} />
+    case 'modelo-ia':
+      return <ControleModeloIA valor={String(valor ?? '')} aoMudar={aoMudar} />
     case 'versao-biblia':
       return <ControleVersaoBiblia valor={String(valor ?? '')} aoMudar={aoMudar} />
     case 'pasta':
       return <ControlePasta valor={String(valor ?? '')} aoMudar={aoMudar} titulo={prop.title ?? 'Escolher pasta'} />
     case 'segredo':
-      return <ControleSegredo valor={String(valor ?? '')} aoMudar={aoMudar} exemplo={prop['x-placeholder']} />
+      return <ControleSegredo valor={String(valor ?? '')} aoMudar={aoMudar} dica={prop['x-dica']} />
     default:
-      return <ControleTexto valor={String(valor ?? '')} aoMudar={aoMudar} exemplo={prop['x-placeholder']} />
+      return <ControleTexto valor={String(valor ?? '')} aoMudar={aoMudar} />
   }
 }
 
@@ -128,13 +132,13 @@ function Lista({ valor, aoMudar, opcoes }: { valor: string; aoMudar: (v: string)
   )
 }
 
-function ControleTexto({ valor, aoMudar, largura = 'w-72', exemplo }: { valor: string; aoMudar: (v: string) => void; largura?: string; exemplo?: string }) {
+function ControleTexto({ valor, aoMudar, largura = 'w-72' }: { valor: string; aoMudar: (v: string) => void; largura?: string }) {
   const [v, setV] = useRascunho(valor, aoMudar)
-  return <input className={`${classeEntrada} ${largura}`} value={v} placeholder={exemplo} onChange={(e) => setV(e.target.value)} />
+  return <input className={`${classeEntrada} ${largura}`} value={v} onChange={(e) => setV(e.target.value)} />
 }
 
-/** Texto escondido (link com chave, chave de API): só aparece ao clicar em "mostrar". */
-function ControleSegredo({ valor, aoMudar, exemplo = 'https://…/manifest.json' }: { valor: string; aoMudar: (v: string) => void; exemplo?: string }) {
+/** Texto escondido (link com chave): só aparece ao clicar em "mostrar". */
+function ControleSegredo({ valor, aoMudar, dica }: { valor: string; aoMudar: (v: string) => void; dica?: string }) {
   const [v, setV] = useRascunho(valor, aoMudar)
   const [ver, setVer] = useState(false)
   return (
@@ -144,7 +148,7 @@ function ControleSegredo({ valor, aoMudar, exemplo = 'https://…/manifest.json'
         type={ver ? 'text' : 'password'}
         autoComplete="off"
         spellCheck={false}
-        placeholder={exemplo}
+        placeholder={dica ?? 'https://…/manifest.json'}
         value={v}
         onChange={(e) => setV(e.target.value.trim())}
       />
@@ -240,23 +244,93 @@ function ControlePasta({ valor, aoMudar, titulo }: { valor: string; aoMudar: (v:
   )
 }
 
-/** Saídas de som (padrão) ou entradas (microfones e entrada de linha). */
-function ControleDispositivoAudio({ valor, aoMudar, tipo = 'audiooutput' }: { valor: string; aoMudar: (v: string) => void; tipo?: 'audiooutput' | 'audioinput' }) {
+function ControleDispositivoAudio({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
   const [dispositivos, setDispositivos] = useState<MediaDeviceInfo[]>([])
   useEffect(() => {
     const ler = () =>
       navigator.mediaDevices
         .enumerateDevices()
-        .then((d) => setDispositivos(d.filter((x) => x.kind === tipo && x.deviceId !== 'default' && x.deviceId !== 'communications')))
+        .then((d) => setDispositivos(d.filter((x) => x.kind === 'audiooutput' && x.deviceId !== 'default' && x.deviceId !== 'communications')))
         .catch(() => setDispositivos([]))
     ler()
     navigator.mediaDevices.addEventListener('devicechange', ler)
     return () => navigator.mediaDevices.removeEventListener('devicechange', ler)
-  }, [tipo])
-  const nome = tipo === 'audioinput' ? 'Entrada de áudio' : 'Saída de som'
-  const opcoes = [{ valor: '', rotulo: 'Padrão do Windows' }, ...dispositivos.map((d, i) => ({ valor: d.deviceId, rotulo: d.label || `${nome} ${i + 1}` }))]
+  }, [])
+  const opcoes = [{ valor: '', rotulo: 'Padrão do Windows' }, ...dispositivos.map((d, i) => ({ valor: d.deviceId, rotulo: d.label || `Saída de som ${i + 1}` }))]
   if (valor && !dispositivos.some((d) => d.deviceId === valor)) opcoes.push({ valor, rotulo: 'Dispositivo desconectado' })
   return <Lista valor={valor} aoMudar={aoMudar} opcoes={opcoes} />
+}
+
+/** Microfones do Windows. Sem os nomes (o Windows só mostra depois de abrir um microfone), abre e fecha um uma vez. */
+function ControleMicrofone({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+  const [dispositivos, setDispositivos] = useState<MediaDeviceInfo[]>([])
+  useEffect(() => {
+    let vivo = true
+    let pediuNomes = false
+    const ler = async () => {
+      try {
+        let d = (await navigator.mediaDevices.enumerateDevices()).filter((x) => x.kind === 'audioinput')
+        if (!pediuNomes && d.some((x) => !x.label)) {
+          pediuNomes = true
+          const f = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null)
+          f?.getTracks().forEach((t) => t.stop())
+          d = (await navigator.mediaDevices.enumerateDevices()).filter((x) => x.kind === 'audioinput')
+        }
+        if (vivo) setDispositivos(d.filter((x) => x.deviceId !== 'default' && x.deviceId !== 'communications'))
+      } catch {
+        if (vivo) setDispositivos([])
+      }
+    }
+    void ler()
+    navigator.mediaDevices.addEventListener('devicechange', ler)
+    return () => {
+      vivo = false
+      navigator.mediaDevices.removeEventListener('devicechange', ler)
+    }
+  }, [])
+  const opcoes = [{ valor: '', rotulo: 'Padrão do Windows' }, ...dispositivos.map((d, i) => ({ valor: d.deviceId, rotulo: d.label || `Microfone ${i + 1}` }))]
+  if (valor && !dispositivos.some((d) => d.deviceId === valor)) opcoes.push({ valor, rotulo: 'Microfone desconectado' })
+  return <Lista valor={valor} aoMudar={aoMudar} opcoes={opcoes} />
+}
+
+/** Nome do modelo, digitado ou escolhido da lista que a API informa. */
+function ControleModeloIA({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
+  const [v, setV] = useRascunho(valor, aoMudar)
+  const [modelos, setModelos] = useState<Array<{ id: string; nome: string }> | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [buscando, setBuscando] = useState(false)
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex items-center gap-2">
+        <input className={`${classeEntrada} w-56 font-mono text-[13px]`} spellCheck={false} value={v} onChange={(e) => setV(e.target.value.trim())} />
+        <Botao
+          disabled={buscando}
+          onClick={async () => {
+            setBuscando(true)
+            setErro(null)
+            try {
+              setModelos(await api.listarModelosIA())
+            } catch (e) {
+              setErro(mensagemDeErro(e))
+            } finally {
+              setBuscando(false)
+            }
+          }}
+          title="Pergunta à API quais modelos ela tem (use a URL e a chave já preenchidas)"
+        >
+          {buscando ? 'Buscando…' : 'Buscar modelos'}
+        </Botao>
+      </div>
+      {modelos && (
+        <Lista
+          valor={modelos.some((m) => m.id === v) ? v : ''}
+          aoMudar={(id) => id && setV(id)}
+          opcoes={[{ valor: '', rotulo: `${modelos.length} modelo(s): escolha um…` }, ...modelos.map((m) => ({ valor: m.id, rotulo: m.nome === m.id ? m.id : `${m.nome} (${m.id})` }))]}
+        />
+      )}
+      {erro && <span className="max-w-80 text-right text-xs text-perigo-texto">{erro}</span>}
+    </div>
+  )
 }
 
 function ControleVersaoBiblia({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {

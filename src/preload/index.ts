@@ -97,22 +97,27 @@ const api: ApiSonoplastia = {
   cenarioLuz: chamar(CANAIS.cenarioLuz),
   abrirPaginaLuz: chamar(CANAIS.abrirPaginaLuz),
 
-  estadoTranscricao: chamar(CANAIS.estadoTranscricao),
-  aoMudarTranscricao: (cb) => ouvir(CANAIS.transcricaoMudou, cb),
-  aoParcialTranscricao: (cb) => ouvir(CANAIS.transcricaoParcial, cb),
-  ligarTranscricao: chamar(CANAIS.ligarTranscricao),
-  limparSugestoes: chamar(CANAIS.limparSugestoes),
-  testarIaTranscricao: chamar(CANAIS.testarIaTranscricao),
-  importarConfigTranscricao: chamar(CANAIS.importarConfigTranscricao),
-  enviarAudioEscuta: (pcm) => ipcRenderer.send(CANAIS.escutaAudio, pcm),
-  avisarEscuta: (a) => ipcRenderer.send(CANAIS.escutaAviso, a),
-
   statusRemoto: chamar(CANAIS.statusRemoto),
   aoMudarRemoto: (cb) => ouvir(CANAIS.remotoMudou, cb),
   aoPassador: (cb) => ouvir(CANAIS.passador, cb),
 
+  ligarTranscricao: chamar(CANAIS.transcricaoLigar),
+  obterTranscricao: chamar(CANAIS.obterTranscricao),
+  aoMudarTranscricao: (cb) => ouvir(CANAIS.transcricao, cb),
+  aoNivelTranscricao: (cb) => ouvir(CANAIS.nivelTranscricao, cb),
+  contextoTranscricao: chamar(CANAIS.contextoTranscricao),
+  limparSugestoes: chamar(CANAIS.limparSugestoes),
+  testarIA: chamar(CANAIS.testarIA),
+  listarModelosIA: chamar(CANAIS.listarModelosIA),
+  testarElevenLabs: chamar(CANAIS.testarElevenLabs),
+  copiarDoProjetoTranscricao: chamar(CANAIS.copiarDoProjetoTranscricao),
+
   aoPedidoSonda: (cb) => ouvir(CANAIS.sondaPedido, cb),
   responderSonda: (r) => ipcRenderer.send(CANAIS.sondaResultado, r),
+
+  aoPedidoEscuta: (cb) => ouvir(CANAIS.escutaConfig, cb),
+  enviarAudioEscuta: (pcm) => ipcRenderer.send(CANAIS.escutaAudio, pcm),
+  statusEscuta: (s) => ipcRenderer.send(CANAIS.escutaStatus, s),
 } as ApiSonoplastia
 
 contextBridge.exposeInMainWorld('api', api)

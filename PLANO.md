@@ -505,13 +505,12 @@ do telão da transcrição, onde coincidirem.
   local com PIN: passar slides pelo celular, ver e ajustar o temporizador, tela simples para o pregador.
   Usar SSE + POST (não WebSocket), pelo mesmo motivo do projeto de transcrição. Os projetores nunca
   dependem desse servidor.
-- **Transcrição em tempo real — feito em 2026-11-15, de outro jeito:** em vez de ler o servidor Python por
-  SSE, o projeto `..\Transcrição_tempo_real` foi **portado para TypeScript dentro do programa**
-  (`src/main/transcricao/`): ElevenLabs para transcrever, parser de referências faladas, busca por palavras
-  (BM25 com pares) e a IA da Anthropic para escolher. Ficou de fora a busca por tema com vetores (`bge-m3`,
-  ~2,3 GB de RAM). Painel "Sugestões" na página Bíblia e no celular; clicar numa sugestão mostra o
-  versículo **pela saída deste programa** (o texto vem da Bíblia daqui, nunca da IA). A escuta do microfone
-  é uma janela oculta que só existe enquanto "Ouvir" está ligado. Detalhes no `CLAUDE.md` (Status e Decisões).
+- **Transcrição em tempo real (feito em 2026-11-16, de outro jeito):** em vez de ler o servidor Python por SSE,
+  a "Bíblia automática" foi reescrita dentro do programa (`src/main/transcricao/`): microfone numa janela oculta,
+  ElevenLabs, busca por palavras na memória (sem o `bge-m3`, pesado demais para o PC da igreja) e a IA escolhendo
+  as passagens. Página Bíblia com `Manual | Automático` e a vista "Sugestões"; tudo configurável em Configurações →
+  Bíblia automática; citação direta pode ir sozinha para a tela. O texto sempre vem da Bíblia daqui, nunca da IA.
+  Próximo passo avaliado: seguir a leitura e passar sozinho para o próximo versículo (ver CLAUDE.md).
 - **YouTube:** estudo em `ESTUDO-YOUTUBE.md` (tocar pelo player oficial × baixar antes); esperando a escolha.
 
 ## 6. Dados e pastas

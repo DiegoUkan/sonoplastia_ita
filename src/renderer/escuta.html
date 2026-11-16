@@ -2,7 +2,8 @@
 <html lang="pt-BR" data-janela="escuta">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <!-- blob: em script-src: o processador de áudio (AudioWorklet) é carregado de um blob -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'" />
     <title>Escuta</title>
   </head>
   <body>

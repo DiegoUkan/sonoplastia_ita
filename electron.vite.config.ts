@@ -16,7 +16,7 @@ export default defineConfig({
           saida: resolve('src/renderer/saida.html'),
           audio: resolve('src/renderer/audio.html'),
           sonda: resolve('src/renderer/sonda.html'),
-          // escuta do microfone (sugestões de versículos ao vivo): oculta, só quando ligada
+          // microfone da Bíblia automática (oculta; só existe com o modo automático ligado)
           escuta: resolve('src/renderer/escuta.html'),
           // controle remoto: servida pelo servidor HTTP do programa para o celular
           remoto: resolve('src/renderer/remoto.html'),

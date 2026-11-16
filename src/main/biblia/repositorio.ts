@@ -37,6 +37,8 @@ export function lerBibliaJson(texto: string): string[][][] {
 }
 
 export class RepositorioBiblia {
+  private readonly tamanhos = new Map<number, number>()
+
   constructor(private readonly db: Banco) {}
 
   versoes(): VersaoBiblia[] {
@@ -76,6 +78,7 @@ export class RepositorioBiblia {
       aoProgresso(l + 1, 66)
       await respirar()
     }
+    this.tamanhos.clear()
     return total
   }
 
@@ -85,16 +88,40 @@ export class RepositorioBiblia {
       .all(sigla, livro, capitulo) as unknown as VersiculoTexto[]
   }
 
-  /** Todos os versículos de uma versão, em ordem, um de cada vez (sem carregar a Bíblia inteira numa lista). */
-  linhas(sigla: string): Iterable<{ livro: number; capitulo: number; versiculo: number; texto: string }> {
-    return this.db
-      .prepare('select livro, capitulo, versiculo, texto from biblia_versiculos where sigla = ? order by livro, capitulo, versiculo')
-      .iterate(sigla) as unknown as Iterable<{ livro: number; capitulo: number; versiculo: number; texto: string }>
-  }
-
   totalCapitulos(sigla: string, livro: number): number {
     const r = this.db.prepare('select max(capitulo) as n from biblia_versiculos where sigla = ? and livro = ?').get(sigla, livro) as { n: number | null }
     return r.n ?? 0
+  }
+
+  /** Versículos do capítulo na versão que tem mais (0 = não existe em nenhuma). Guardado na memória. */
+  versiculosNoCapitulo(livro: number, capitulo: number): number {
+    const k = livro * 1000 + capitulo
+    let n = this.tamanhos.get(k)
+    if (n === undefined) {
+      const r = this.db.prepare('select max(versiculo) as n from biblia_versiculos where livro = ? and capitulo = ?').get(livro, capitulo) as { n: number | null }
+      n = r.n ?? 0
+      this.tamanhos.set(k, n)
+    }
+    return n
+  }
+
+  /** O versículo em cada versão importada. */
+  textosDoVersiculo(livro: number, capitulo: number, versiculo: number): Array<{ sigla: string; texto: string }> {
+    return this.db
+      .prepare('select sigla, texto from biblia_versiculos where livro = ? and capitulo = ? and versiculo = ? order by sigla')
+      .all(livro, capitulo, versiculo) as unknown as Array<{ sigla: string; texto: string }>
+  }
+
+  /** Todos os versículos de um livro, em todas as versões (para montar o índice da Bíblia automática). */
+  versiculosDoLivro(livro: number): Array<{ capitulo: number; versiculo: number; texto: string }> {
+    return this.db
+      .prepare('select capitulo, versiculo, texto from biblia_versiculos where livro = ? order by capitulo, versiculo')
+      .all(livro) as unknown as Array<{ capitulo: number; versiculo: number; texto: string }>
+  }
+
+  /** Esquece os tamanhos guardados (depois de importar uma versão). */
+  esquecerTamanhos(): void {
+    this.tamanhos.clear()
   }
 
   buscar(sigla: string, termo: string, limite = 60): ResultadoBuscaBiblia[] {

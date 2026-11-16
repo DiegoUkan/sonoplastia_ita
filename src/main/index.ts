@@ -12,18 +12,19 @@ import {
   type WebPreferences,
 } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { ATALHO_EMERGENCIA } from '../shared/atalhos'
 import type { Config } from '../shared/config'
 import type { FiltroMidias, Progresso, SlideMusicaDados } from '../shared/dados'
-import type { Alvo, Comando, Fundo, Telemetria, VersaoMusica } from '../shared/estado'
+import { type Alvo, AUDIO, type Comando, type Fundo, type Telemetria, type VersaoMusica } from '../shared/estado'
 import type { AlteracaoLiturgia } from '../shared/liturgia'
-import { CANAIS,type ResultadoSonda, type TipoArquivo } from '../shared/ipc'
+import { CANAIS, type PedidoEscuta, type ResultadoSonda, type StatusEscuta, type TipoArquivo } from '../shared/ipc'
 import { enderecoDaLuz } from '../shared/iluminacao'
 import { temposDaVersao } from '../shared/musica'
 import { BibliotecaApresentacoes } from './apresentacoes/biblioteca'
 import { criarConversor } from './apresentacoes/conversao'
-import { rodarAutoteste } from './autoteste'
+import { gerarWavDeTeste, rodarAutoteste } from './autoteste'
 import { abrirBanco } from './banco'
 import { RepositorioBiblia } from './biblia/repositorio'
 import { BibliotecaMidias, nomeLivre } from './biblioteca/midias'
@@ -43,12 +44,20 @@ import { RepositorioLiturgias } from './liturgia/repositorio'
 import { RepositorioMusicas } from './musicas/repositorio'
 import { ligarControleRemoto } from './remoto/ligar'
 import { GerenciadorTelas } from './telas/gerenciador'
-import { ligarTranscricao } from './transcricao/ligar'
+import { copiarDoProjeto, ehProjetoTranscricao, PASTA_TRANSCRICAO } from './transcricao/importar'
+import { ServicoTranscricao, tocandoNoMotor } from './transcricao/servico'
 
 const AUTOTESTE = process.argv.includes('--autoteste')
 const DEV = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL
 
-if (AUTOTESTE) app.commandLine.appendSwitch('mute-audio')
+if (AUTOTESTE) {
+  app.commandLine.appendSwitch('mute-audio')
+  // Bíblia automática no autoteste: microfone de mentira (um .wav, se indicado), nada de microfone real
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  const wav = process.env.SONOPLASTIA_AUTOTESTE_AUDIO || join(tmpdir(), 'sonoplastia-autoteste-voz.wav')
+  if (!process.env.SONOPLASTIA_AUTOTESTE_AUDIO) gerarWavDeTeste(wav)
+  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', wav)
+}
 registrarEsquemaPrivilegiado()
 
 let janelaComando: BrowserWindow | null = null
@@ -132,11 +141,11 @@ function aplicarTema(cfg: Config): void {
   janelaComando?.setBackgroundColor(corDoTema(cfg))
 }
 
-/** Janela oculta (trilha de áudio, sonda, escuta do microfone): nunca aparece. */
-function criarJanelaOculta(pagina: Pagina, query: Record<string, string> = {}): BrowserWindow {
+/** Janela oculta (trilha de áudio, sonda): nunca aparece. */
+function criarJanelaOculta(pagina: Pagina): BrowserWindow {
   const win = new BrowserWindow({ show: false, width: 640, height: 360, skipTaskbar: true, webPreferences: preferenciasWeb() })
   protegerNavegacao(win)
-  carregarPagina(win, pagina, query)
+  carregarPagina(win, pagina)
   return win
 }
 
@@ -187,12 +196,84 @@ async function iniciar(): Promise<void> {
   const midias = new BibliotecaMidias(db, { base: caminhos.midias, miniaturas: caminhos.miniaturas }, sonda, ffmpeg)
   const musicas = new RepositorioMusicas(db)
   const biblia = new RepositorioBiblia(db)
-  // sugestões de versículos ao vivo (a escuta do microfone só abre quando o operador liga)
-  const transcricao = ligarTranscricao({
-    armazem,
+
+  // --- Bíblia automática: microfone numa janela oculta, transcrição (ElevenLabs) e IA no processo principal
+  let janelaEscuta: BrowserWindow | null = null
+  let pedidoEscuta: PedidoEscuta | null = null
+  const abrirEscuta = (microfone: string) => {
+    pedidoEscuta = { microfone }
+    if (janelaEscuta && !janelaEscuta.isDestroyed()) {
+      janelaEscuta.webContents.send(CANAIS.escutaConfig, pedidoEscuta)
+      return
+    }
+    const w = criarJanelaOculta('escuta')
+    janelaEscuta = w
+    w.webContents.on('did-finish-load', () => {
+      if (pedidoEscuta && !w.isDestroyed()) w.webContents.send(CANAIS.escutaConfig, pedidoEscuta)
+    })
+    w.webContents.on('render-process-gone', (_e, d) => {
+      log.erro(`A janela do microfone caiu (${d.reason}). Recarregando.`)
+      if (pedidoEscuta && !w.isDestroyed()) carregarPagina(w, 'escuta')
+    })
+    w.on('closed', () => {
+      if (janelaEscuta === w) janelaEscuta = null
+    })
+  }
+  const fecharEscuta = () => {
+    pedidoEscuta = null
+    const w = janelaEscuta
+    janelaEscuta = null
+    if (w && !w.isDestroyed()) w.destroy()
+  }
+  const transcricao = new ServicoTranscricao({
+    config: () => armazem.obter(),
+    motor,
     biblia,
-    criarJanelaEscuta: (mic) => criarJanelaOculta('escuta', mic ? { mic } : {}),
-    comando: () => janelaComando,
+    abrirEscuta,
+    fecharEscuta,
+    // tocando de verdade (telemetria), não só "no ar": um vídeo que acabou não segura a pausa
+    midiaTocando: () => {
+      const t = tocandoNoMotor(motor.estado)
+      if (t.audio && telemetrias.get(AUDIO)?.video?.tocando) return true
+      return t.saidas.some((id) => telemetrias.get(id)?.video?.tocando)
+    },
+    buscar: (url, init) => net.fetch(url, init),
+    log,
+  })
+  transcricao.on('estado', (e) => janelaComando?.webContents.send(CANAIS.transcricao, e))
+  transcricao.on('nivel', (n) => janelaComando?.webContents.send(CANAIS.nivelTranscricao, n))
+  armazem.on('mudou', () => transcricao.configMudou())
+  ipcMain.handle(CANAIS.transcricaoLigar, (_e, sim: boolean) => transcricao.ligar(sim === true))
+  ipcMain.handle(CANAIS.obterTranscricao, () => transcricao.obter())
+  ipcMain.handle(CANAIS.contextoTranscricao, (_e, c: { alvo?: string; sigla?: string }) => transcricao.contexto(c ?? {}))
+  ipcMain.handle(CANAIS.limparSugestoes, () => transcricao.limparSugestoes())
+  ipcMain.handle(CANAIS.testarIA, () => transcricao.testarIA())
+  ipcMain.handle(CANAIS.listarModelosIA, () => transcricao.listarModelos())
+  ipcMain.handle(CANAIS.testarElevenLabs, () => transcricao.testarElevenLabs())
+  ipcMain.handle(CANAIS.copiarDoProjetoTranscricao, async () => {
+    let pasta = PASTA_TRANSCRICAO
+    if (!ehProjetoTranscricao(pasta)) {
+      const r = await dialog.showOpenDialog(janelaComando!, { title: 'Pasta do projeto de transcrição (Transcrição_tempo_real)', properties: ['openDirectory'] })
+      if (r.canceled || !r.filePaths[0]) return { ok: false, mensagem: 'Nada copiado.' }
+      pasta = r.filePaths[0]
+    }
+    try {
+      const c = armazem.obter()
+      const r = copiarDoProjeto(c.transcricao, pasta)
+      armazem.salvar({ ...c, transcricao: r.config })
+      log.info(`Bíblia automática: copiado do projeto de transcrição: ${r.copiado.join(', ') || 'nada'}`)
+      return { ok: r.copiado.length > 0, mensagem: [r.copiado.length ? `Copiado: ${r.copiado.join(', ')}.` : 'Nada copiado.', ...r.avisos].join(' ') }
+    } catch (e) {
+      return { ok: false, mensagem: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  ipcMain.on(CANAIS.escutaAudio, (e, dado: ArrayBuffer | ArrayBufferView) => {
+    if (!janelaEscuta || e.sender !== janelaEscuta.webContents) return
+    const u8 = dado instanceof ArrayBuffer ? new Uint8Array(dado) : new Uint8Array(dado.buffer, dado.byteOffset, dado.byteLength)
+    transcricao.receberAudio(new Int16Array(u8.slice(0, u8.byteLength - (u8.byteLength % 2)).buffer))
+  })
+  ipcMain.on(CANAIS.escutaStatus, (e, s: StatusEscuta) => {
+    if (janelaEscuta && e.sender === janelaEscuta.webContents) transcricao.statusEscuta(s)
   })
   // scripts do PowerShell que transformam slides em imagens (no instalador: resources\scripts)
   const pastaScripts = app.isPackaged ? join(process.resourcesPath, 'scripts') : join(app.getAppPath(), 'scripts', 'powershell')
@@ -377,10 +458,10 @@ async function iniciar(): Promise<void> {
   const importarTextoBiblia = async (texto: string, sigla: string, nome: string) => {
     const n = await biblia.importar(texto, sigla, nome, (feito, total) => progresso({ tarefa: 'biblia', feito, total, texto: sigla }))
     progresso({ tarefa: 'biblia', feito: 1, total: 1, fim: true })
+    transcricao.bibliaMudou()
     const c = armazem.obter()
     if (!c.biblia.versaoPadrao) armazem.salvar({ ...c, biblia: { ...c.biblia, versaoPadrao: sigla.trim().toUpperCase() } })
     transmitir(CANAIS.biblia)
-    transcricao.bibliaMudou()
     log.info(`Bíblia ${sigla} importada: ${n} versículos`)
     return n
   }
@@ -625,11 +706,11 @@ async function iniciar(): Promise<void> {
   // controle remoto pelo celular: http://<IP do computador>:<porta> (página remoto.html)
   const remoto = ligarControleRemoto({
     armazem,
+    transcricao,
     motor,
     musicas,
     midias,
     biblia,
-    transcricao,
     abrirMusica,
     comando: () => janelaComando,
     pastaPaginas: join(__dirname, '../renderer'),
@@ -646,6 +727,7 @@ async function iniciar(): Promise<void> {
 
   app.on('before-quit', () => {
     encerrando = true
+    transcricao.encerrar()
     site.parar()
     telas.encerrar()
     sonda.fechar()

@@ -5,13 +5,14 @@ import type { FiltroMidias, TipoMidia } from '../../shared/dados'
 import type { Alvo, Telemetria, VersaoMusica } from '../../shared/estado'
 import { CANAIS } from '../../shared/ipc'
 import type { ConfigPublica, EventoRemoto, MetodoRemoto } from '../../shared/remoto'
+import type { EstadoTranscricao } from '../../shared/transcricao/tipos'
 import type { RepositorioBiblia } from '../biblia/repositorio'
 import type { BibliotecaMidias } from '../biblioteca/midias'
 import type { ArmazemConfig } from '../config'
 import { log } from '../log'
 import type { Motor } from '../motor'
 import type { RepositorioMusicas } from '../musicas/repositorio'
-import type { MotorSugestoes } from '../transcricao/motor'
+import { type ServicoTranscricao, paraCelular } from '../transcricao/servico'
 import { comandoRemoto, gerarPin, ServidorRemoto } from './servidor'
 
 export interface DepsRemoto {
@@ -21,7 +22,7 @@ export interface DepsRemoto {
   midias: BibliotecaMidias
   biblia: RepositorioBiblia
   /** sugestões de versículos ao vivo (o celular liga, desliga e vê as sugestões) */
-  transcricao?: MotorSugestoes
+  transcricao?: ServicoTranscricao
   abrirMusica: (id: number, versao: VersaoMusica, alvo: Alvo, indice?: number) => void
   comando: () => BrowserWindow | null
   pastaPaginas: string
@@ -86,7 +87,8 @@ export function ligarControleRemoto(d: DepsRemoto): ServidorRemoto {
         return d.biblia.buscar(texto(a[0]), texto(a[1]))
       case 'ligarTranscricao':
         if (!d.transcricao) throw new Error('As sugestões de versículos não estão disponíveis.')
-        return a[0] === true ? d.transcricao.ligar() : d.transcricao.desligar()
+        d.transcricao.ligar(a[0] === true)
+        return
     }
   }
 
@@ -97,19 +99,27 @@ export function ligarControleRemoto(d: DepsRemoto): ServidorRemoto {
     inicial: () => [
       ['config', configPublica(d.armazem.obter())],
       ['estado', d.motor.estado],
-      ...(d.transcricao ? ([['transcricao', d.transcricao.estado()]] as Array<[EventoRemoto, unknown]>) : []),
+      ...(d.transcricao ? ([['transcricao', paraCelular(d.transcricao.obter())]] as Array<[EventoRemoto, unknown]>) : []),
     ],
   })
   // sugestões: o estado inteiro quando muda; o que está sendo dito no máximo duas vezes por segundo
   // (o nível do microfone fica só na tela de comando)
   if (d.transcricao) {
-    d.transcricao.on('estado', (e) => servidor.transmitir('transcricao', e))
+    // sem o que está sendo dito (vai à parte) e só quando mudou: menos tráfego no Wi-Fi
+    let ultimoEstado = ''
+    d.transcricao.on('estado', (e: EstadoTranscricao) => {
+      const p = paraCelular(e)
+      const j = JSON.stringify(p)
+      if (j === ultimoEstado) return
+      ultimoEstado = j
+      servidor.transmitir('transcricao', p)
+    })
     let ultimoParcial = 0
     let parcialPendente: NodeJS.Timeout | null = null
     let textoParcial = ''
     let enviado = ''
-    d.transcricao.on('parcial', (p: { texto: string }) => {
-      textoParcial = p.texto
+    d.transcricao.on('parcial', (texto: string) => {
+      textoParcial = texto
       if (parcialPendente || textoParcial === enviado) return
       parcialPendente = setTimeout(
         () => {

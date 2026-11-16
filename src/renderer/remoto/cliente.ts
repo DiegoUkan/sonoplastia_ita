@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Midia, Musica, ResultadoBuscaBiblia, ResumoMusica, TipoMidia, VersaoBiblia, VersiculoTexto } from '../../shared/dados'
 import type { Alvo, Comando, EstadoMotor, Telemetria, VersaoMusica } from '../../shared/estado'
 import type { ConfigPublica, DirecaoPassador, MetodoRemoto } from '../../shared/remoto'
-import type { EstadoTranscricao } from '../../shared/transcricao'
+import type { EstadoTranscricao } from '../../shared/transcricao/tipos'
 
 /** Avisado quando o servidor pede o PIN (o PIN mudou ou o cookie sumiu). */
 let aoPedirPin: () => void = () => {}
