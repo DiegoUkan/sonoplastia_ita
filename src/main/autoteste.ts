@@ -695,7 +695,10 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     // o Whisper de verdade (precisa estar em <dados>\whisper: bin\whisper-server.exe e modelos\ggml-base-q5_1.bin)
     // ouvindo o microfone de mentira (SONOPLASTIA_AUTOTESTE_AUDIO com uma pregação gravada); a IA é de mentira
     const instalado = ctx.transcricao.estadoWhisper()
-    if (!instalado.exe || !instalado.modelos.base) {
+    // SONOPLASTIA_AUTOTESTE_WHISPER=turbo:8 escolhe o modelo e os núcleos (padrão base:2)
+    const [modeloTeste = 'base', nucleos = '2'] = (process.env.SONOPLASTIA_AUTOTESTE_WHISPER ?? '').split(':').filter(Boolean)
+    const modeloLocal = (['base', 'small', 'turbo'] as const).find((m) => m === modeloTeste) ?? 'base'
+    if (!instalado.exe || !instalado.vad || !instalado.modelos[modeloLocal]) {
       relatorio.transcricaoLocal = 'Whisper não está na pasta de dados; pulado'
       return
     }
@@ -705,7 +708,11 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
       criarProvedor: () => ({ completarJson: async () => ({ dados: { passagens: [] }, uso: { entrada: 0, saida: 0 } }), listarModelos: async () => [] }),
     })
     const c = ctx.armazem.obter()
-    ctx.armazem.salvar({ ...c, transcricao: { ...c.transcricao, escuta: { ...c.transcricao.escuta, motor: 'local', modeloLocal: 'base', threadsLocal: 2 } } })
+    ctx.armazem.salvar({
+      ...c,
+      transcricao: { ...c.transcricao, escuta: { ...c.transcricao.escuta, motor: 'local', modeloLocal, threadsLocal: Math.max(1, Number(nucleos) || 2) } },
+    })
+    r.modelo = `${modeloLocal}, ${nucleos} núcleos`
     fazer({ tipo: 'mostrar', alvo: 'todas', conteudo: { tipo: 'vazio' } })
     fazer({ tipo: 'tela', alvo: 'todas', tela: 'normal' })
     r.velocidade = await ctx.transcricao.testarWhisper()

@@ -79,7 +79,9 @@ export interface InstalacaoWhisper {
   pasta: string
   versao: string
   exe: boolean
-  modelos: Record<'base' | 'small', boolean>
+  /** detector de voz do Whisper (sem ele, o silêncio vira "O que é isso?") */
+  vad: boolean
+  modelos: Record<'base' | 'small' | 'turbo', boolean>
 }
 
 export interface ResultadoTeste {

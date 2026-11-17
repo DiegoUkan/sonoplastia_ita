@@ -11,7 +11,7 @@ import { configPadrao } from '../src/shared/config'
 import { Motor } from '../src/main/motor'
 import type { ProvedorIA } from '../src/main/transcricao/ia'
 import { ServicoTranscricao, type ServidorLocal } from '../src/main/transcricao/servico'
-import { ConexaoWhisper, instalarWhisper, limparTextoWhisper, type Transcritor, wavDe, WHISPER } from '../src/main/transcricao/whisper'
+import { ConexaoWhisper, decodificarMisto, instalarWhisper, limparTextoWhisper, pcmDoWav, type Transcritor, wavDe, WHISPER } from '../src/main/transcricao/whisper'
 
 const silencio = () => new Int16Array(1600)
 const voz = (amplitude = 8000) => Int16Array.from({ length: 1600 }, (_, i) => Math.round(amplitude * Math.sin((2 * Math.PI * 220 * i) / 16000)))
@@ -46,11 +46,11 @@ describe('Whisper local: frases e texto', () => {
     expect(c.abriu).toBe(true)
     for (let i = 0; i < 3; i++) c.enviar(silencio(), false)
     for (let i = 0; i < 20; i++) c.enviar(voz(), true)
-    for (let i = 0; i < 5; i++) c.enviar(silencio(), false)
+    for (let i = 0; i < 7; i++) c.enviar(silencio(), false)
     await esperarTarefas()
     expect(w.frases).toHaveLength(1)
-    // 3 quadros de antes + 20 de voz + 2 de silêncio que ficam no fim
-    expect(w.frases[0]!.length).toBe(25 * 1600)
+    // 3 quadros de antes + 20 de voz + 4 do fim (a voz suavizada dura 2 quadros a mais; ficam 2 de silêncio)
+    expect(w.frases[0]!.length).toBe(27 * 1600)
     expect(finais).toEqual(['Vamos ler João 3:16.'])
   })
 
@@ -65,6 +65,18 @@ describe('Whisper local: frases e texto', () => {
     for (let i = 0; i < 200; i++) c.enviar(voz(), true)
     await esperarTarefas()
     expect(w.frases[0]!.length).toBe(170 * 1600)
+  })
+
+  it('cliques, teclado e estalos soltos no silêncio nunca viram frase (o Whisper inventaria "O que é isso?")', async () => {
+    const w = new WhisperFalso(['O que é isso?'])
+    const c = new ConexaoWhisper(async () => w as Transcritor)
+    await esperarTarefas()
+    // um quadro alto a cada 4 (teclado)
+    for (let i = 0; i < 200; i++) c.enviar(i % 4 === 0 ? voz() : silencio(), i % 4 === 0)
+    // estalos de 0,3 s a cada 0,8 s (cadeira, microfone batendo)
+    for (let i = 0; i < 160; i++) c.enviar(i % 8 < 3 ? voz() : silencio(), i % 8 < 3)
+    await c.encerrar()
+    expect(w.frases).toHaveLength(0)
   })
 
   it('encerrar transcreve a frase em andamento e fecha', async () => {
@@ -94,11 +106,20 @@ describe('Whisper local: frases e texto', () => {
     expect(limparTextoWhisper('Deus Deus Deus Deus Deus é bom')).toBe('Deus é bom')
   })
 
-  it('WAV de 16 kHz mono', () => {
-    const w = wavDe(new Int16Array(1600))
+  it('letra acentuada que o modelo escreve em Latin-1 é recuperada; UTF-8 normal continua igual', () => {
+    expect(decodificarMisto(Buffer.from([0x61, 0x20, 0x42, 0xed, 0x62, 0x6c, 0x69, 0x61]))).toBe('a Bíblia')
+    expect(decodificarMisto(Buffer.from('João, capítulo 3, versículo 16 — ação', 'utf8'))).toBe('João, capítulo 3, versículo 16 — ação')
+    expect(decodificarMisto(Buffer.from([0x63, 0xe9, 0x75]))).toBe('céu')
+  })
+
+  it('WAV de 16 kHz mono (ida e volta)', () => {
+    const pcm = Int16Array.from({ length: 1600 }, (_, i) => i - 800)
+    const w = wavDe(pcm)
     expect(w.length).toBe(44 + 3200)
     expect(w.toString('ascii', 0, 4)).toBe('RIFF')
     expect(w.readUInt32LE(24)).toBe(16000)
+    expect(Array.from(pcmDoWav(w)!)).toEqual(Array.from(pcm))
+    expect(pcmDoWav(Buffer.from('não é wav'))).toBeNull()
   })
 
   it('download com SHA-256 errado é apagado e não instala', async () => {
@@ -144,6 +165,7 @@ describe('serviço com a transcrição local', () => {
       mkdirSync(join(pasta, 'modelos'))
       writeFileSync(join(pasta, 'bin', 'whisper-server.exe'), '')
       writeFileSync(join(pasta, 'modelos', 'ggml-base-q5_1.bin'), '')
+      writeFileSync(join(pasta, 'modelos', WHISPER.vad.arquivo), '')
     }
     const cfg = configPadrao()
     cfg.transcricao.ia.chave = 'ia'
@@ -158,6 +180,7 @@ describe('serviço com a transcrição local', () => {
       fecharEscuta: () => {},
       midiaTocando: () => false,
       criarServidorWhisper: () => w,
+      vozDeTeste: async () => voz(),
       criarProvedor: () => iaVazia,
     })
     return { s, w, motor, cfg }
@@ -179,13 +202,30 @@ describe('serviço com a transcrição local', () => {
     expect(w.iniciado).toBe(1)
     for (let i = 0; i < 20; i++) s.receberAudio(silencio())
     for (let i = 0; i < 20; i++) s.receberAudio(voz())
-    for (let i = 0; i < 6; i++) s.receberAudio(silencio())
+    for (let i = 0; i < 8; i++) s.receberAudio(silencio())
     await esperarTarefas()
     expect(w.frases).toHaveLength(1)
     expect(motor.estado.saidas.publico!.conteudo).toMatchObject({ tipo: 'versiculo', referencia: 'João 3:16 (ARA)' })
     expect(s.obter().falas.at(-1)?.texto).toMatch(/João capítulo três/)
     s.ligar(false)
     expect(w.parado).toBe(1)
+  })
+
+  it('sem o detector de voz baixado também falta (instalações de antes de 16/11)', () => {
+    const { s } = montarLocal(true)
+    rmSync(join(pasta, 'modelos', WHISPER.vad.arquivo))
+    s.ligar(true)
+    expect(s.obter().faltando).toContain('baixar o Whisper (modelo base)')
+  })
+
+  it('"Testar a velocidade" transcreve uma fala e diz o que ouviu', async () => {
+    const { s, w } = montarLocal(true)
+    w.respostas = ['Vamos abrir a Bíblia em João 3:16.']
+    const r = await s.testarWhisper()
+    expect(r.ok).toBe(true)
+    expect(r.mensagem).toContain('Ouviu: “Vamos abrir a Bíblia em João 3:16.”')
+    expect(r.mensagem).toContain('Dá conta da fala ao vivo')
+    expect(w.parado).toBe(1) // fechou de novo (o Automático estava desligado)
   })
 
   it('trocar os núcleos (ou o modelo) reabre o Whisper', async () => {

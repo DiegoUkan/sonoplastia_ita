@@ -13,7 +13,7 @@ import { cobertura, conjuntoDePares, pareceLeitura } from '../src/shared/transcr
 import { nivelDb, PortaVoz } from '../src/shared/transcricao/voz'
 import { Motor } from '../src/main/motor'
 import { AnalisadorFala, type BibliaDoAnalisador } from '../src/main/transcricao/analisador'
-import { ConexaoElevenLabs } from '../src/main/transcricao/elevenlabs'
+import { ConexaoElevenLabs, explicarChaveElevenLabs, pareceChaveElevenLabs } from '../src/main/transcricao/elevenlabs'
 import { lerEscolhas, montarPedido } from '../src/main/transcricao/escolha'
 import { criarProvedor, ErroIA, extrairJson, type ProvedorIA, urlEfetiva } from '../src/main/transcricao/ia'
 import { IndiceBiblia } from '../src/main/transcricao/indice'
@@ -432,7 +432,7 @@ describe('ElevenLabs (WebSocket de mentira)', () => {
       const c = new ConexaoElevenLabs({ chave: 'x', url: ws.url })
       const erro = await new Promise<[string, boolean]>((r) => c.on('erro', (m: string, f: boolean) => r([m, f])))
       expect(erro[1]).toBe(true)
-      expect(erro[0]).toContain('auth_error')
+      expect(erro[0]).toContain('recusou a chave')
     } finally {
       await ws.fechar()
     }
@@ -726,6 +726,55 @@ describe('referência no ar', () => {
     expect(mesmaReferencia('João 3:16 (ARA)', 'João 3:16')).toBe(true)
     expect(mesmaReferencia('João 3:16 (1/2) (ARA)', 'João 3:16')).toBe(true)
     expect(mesmaReferencia('João 3:16 (ARA)', 'João 3:1')).toBe(false)
+  })
+})
+
+describe('ElevenLabs: por que a chave foi recusada', () => {
+  // respostas no formato que a API comum do ElevenLabs devolveu em 16/11
+  const resposta = (status: number, corpo: unknown) => async () => new Response(JSON.stringify(corpo), { status, headers: { 'content-type': 'application/json' } })
+
+  it('formato da chave', () => {
+    expect(pareceChaveElevenLabs(`sk_${'a1'.repeat(24)}`)).toBe(true)
+    expect(pareceChaveElevenLabs('ab12'.repeat(16))).toBe(false) // 64 caracteres sem sk_ (o caso do usuário)
+  })
+
+  it('o ID da chave no lugar da chave (o caso do usuário; resposta real de 16/11)', async () => {
+    const r = await explicarChaveElevenLabs(
+      'x',
+      resposta(401, { detail: { code: 'invalid_api_key', status: 'api_key_id_used_as_api_key', message: 'API key ID used as API key - only valid API keys can be used.' } }),
+    )
+    expect(r).toContain('Isto é o ID da chave, não a chave')
+  })
+
+  it('chave inválida, sem permissão, válida', async () => {
+    expect(await explicarChaveElevenLabs('x', resposta(401, { detail: { status: 'invalid_api_key', message: 'Invalid API key' } }))).toContain('não reconhece esta chave')
+    expect(await explicarChaveElevenLabs('x', resposta(401, { detail: { status: 'missing_permissions', message: 'missing user_read' } }))).toContain('Speech to Text')
+    expect(await explicarChaveElevenLabs('x', resposta(200, { subscription: {} }))).toContain('Speech to Text')
+    expect(await explicarChaveElevenLabs('x', async () => Promise.reject(new Error('sem internet')))).toBeNull()
+  })
+
+  it('o teste do programa junta o formato errado e o motivo', async () => {
+    const cfg = configCom((c) => (c.transcricao.escuta.chaveElevenLabs = 'ab12'.repeat(16)))
+    const conexao = new EventEmitter() as EventEmitter & { abriu: boolean; enviar: () => void; encerrar: () => Promise<void>; fecharJa: () => void }
+    Object.assign(conexao, { abriu: false, enviar: () => {}, encerrar: async () => {}, fecharJa: () => {} })
+    const s = new ServicoTranscricao({
+      config: () => cfg,
+      motor: new Motor(['publico']),
+      biblia: bibliaFalsa,
+      pastaWhisper: 'nao-existe',
+      abrirEscuta: () => {},
+      fecharEscuta: () => {},
+      midiaTocando: () => false,
+      criarConexao: () => {
+        setTimeout(() => conexao.emit('erro', 'O ElevenLabs recusou a chave.', true), 5)
+        return conexao
+      },
+      buscar: resposta(401, { detail: { status: 'api_key_id_used_as_api_key', message: 'API key ID used as API key' } }),
+    })
+    const r = await s.testarElevenLabs()
+    expect(r.ok).toBe(false)
+    expect(r.mensagem).toContain('Isto é o ID da chave, não a chave')
+    expect(r.mensagem).toContain('começa com sk_')
   })
 })
 

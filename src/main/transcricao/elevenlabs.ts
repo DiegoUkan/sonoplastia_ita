@@ -153,8 +153,46 @@ export class ConexaoElevenLabs extends EventEmitter {
       this.emit('final', texto)
     } else if ('error' in msg) {
       const fatal = ERROS_FATAIS.has(tipo)
-      this.emit('erro', `ElevenLabs (${tipo || 'erro'}): ${String(msg.error)}`, fatal)
+      this.emit('erro', MENSAGENS[tipo] ?? `ElevenLabs (${tipo || 'erro'}): ${String(msg.error)}`, fatal)
       if (fatal) this.fecharJa()
     }
+  }
+}
+
+const MENSAGENS: Record<string, string> = {
+  auth_error: 'O ElevenLabs recusou a chave. Em Configurações → Bíblia automática, "Testar o ElevenLabs" mostra o motivo.',
+  quota_exceeded: 'Acabaram os créditos do ElevenLabs.',
+  unaccepted_terms: 'Falta aceitar os termos de uso no site do ElevenLabs.',
+}
+
+/** Chave de API do ElevenLabs: "sk_" + letras e números (51 caracteres hoje). */
+export const pareceChaveElevenLabs = (chave: string) => /^sk_[A-Za-z0-9]{20,}$/.test(chave)
+
+/**
+ * Por que o ElevenLabs recusou a chave. A transcrição em tempo real só diz "You must be authenticated" (igual sem
+ * chave e com chave errada); a API comum diz o motivo. null se não deu para perguntar.
+ */
+export async function explicarChaveElevenLabs(chave: string, buscar: (url: string, init?: RequestInit) => Promise<Response>): Promise<string | null> {
+  try {
+    const r = await buscar('https://api.elevenlabs.io/v1/user', { headers: { 'xi-api-key': chave }, signal: AbortSignal.timeout(10_000) })
+    if (r.ok) return 'A chave é válida, mas o ElevenLabs não liberou a transcrição para ela: na página da chave (Developers → API Keys), ligue a permissão "Speech to Text".'
+    const j = (await r.json().catch(() => null)) as { detail?: { status?: string; message?: string } } | null
+    switch (j?.detail?.status) {
+      // o caso do usuário em 16/11: colou o ID da chave (64 caracteres) no lugar da chave
+      case 'api_key_id_used_as_api_key':
+        return 'Isto é o ID da chave, não a chave. No ElevenLabs a chave (começa com sk_) só aparece uma vez, quando é criada: em elevenlabs.io → Developers → API Keys, crie uma nova (ou renove a atual), copie a que começa com sk_ e cole aqui.'
+      case 'invalid_api_key':
+        return 'O ElevenLabs não reconhece esta chave (apagada, de outra conta ou copiada pela metade). Crie uma nova em elevenlabs.io → Developers → API Keys e cole aqui.'
+      case 'missing_permissions':
+        return 'A chave existe, mas está sem permissão: na página dela (Developers → API Keys), ligue "Speech to Text".'
+      case 'needs_authorization':
+        return 'A chave não chegou ao ElevenLabs.'
+      case 'quota_exceeded':
+        return 'Acabaram os créditos do ElevenLabs.'
+      default:
+        return `O ElevenLabs recusou a chave: ${j?.detail?.message ?? `HTTP ${r.status}`}.`
+    }
+  } catch {
+    return null
   }
 }

@@ -393,7 +393,7 @@ export type ConfigSite = z.infer<typeof EsquemaSite>
  * As chaves ficam só no config.json deste computador: não vão para o controle remoto nem para o log.
  */
 export const MOTORES_TRANSCRICAO = ['local', 'elevenlabs'] as const
-export const MODELOS_WHISPER = ['base', 'small'] as const
+export const MODELOS_WHISPER = ['base', 'small', 'turbo'] as const
 
 export const EsquemaTranscricaoEscuta = z.object({
   motor: z.enum(MOTORES_TRANSCRICAO).default('local').meta({
@@ -403,20 +403,26 @@ export const EsquemaTranscricaoEscuta = z.object({
   }),
   modeloLocal: z.enum(MODELOS_WHISPER).default('base').meta({
     title: 'Whisper: modelo',
-    description: 'O base dá conta no PC da igreja. O small erra menos as palavras, mas é cerca de 3 vezes mais lento: use "Testar a velocidade".',
-    'x-opcoes': { base: 'Base (60 MB): rápido', small: 'Small (190 MB): mais preciso, mais lento' },
+    description:
+      'Quanto maior, mais acerta e mais pesa. O turbo acerta quase tudo, mas precisa de um computador forte (no i3 da igreja não dá conta). Depois de escolher, use "Testar a velocidade".',
+    'x-opcoes': {
+      base: 'Base (60 MB): rápido, erra bastante',
+      small: 'Small (190 MB): erra menos, ~3× mais lento',
+      turbo: 'Turbo (574 MB): quase não erra, só em PC forte',
+    },
   }),
-  threadsLocal: z.number().int().min(1).max(8).default(2).meta({
+  threadsLocal: z.number().int().min(1).max(16).default(2).meta({
     title: 'Whisper: núcleos do processador',
-    description: '2 deixa o resto do computador para o programa, os vídeos e a projeção.',
+    description: 'Mais núcleos = mais rápido, e menos sobra para o programa e os vídeos. No i3 da igreja, 2; num PC de 6 núcleos (12 threads), até 8.',
     'x-ui': 'deslizante',
     'x-passo': 1,
   }),
   chaveElevenLabs: z.string().max(300).default('').meta({
-    title: 'Chave do ElevenLabs (só na nuvem)',
-    description: 'O ElevenLabs transforma a fala em texto (cerca de US$ 0,40 por hora de fala). Só é cobrado enquanto alguém fala.',
+    title: 'Chave de API do ElevenLabs (só na nuvem)',
+    description:
+      'Começa com sk_ (elevenlabs.io → Developers → API Keys, com a permissão Speech to Text). Cerca de US$ 0,40 por hora de fala; só é cobrado enquanto alguém fala.',
     'x-ui': 'segredo',
-    'x-dica': 'cole a chave aqui',
+    'x-dica': 'sk_…',
   }),
   microfone: z.string().default('').meta({
     title: 'Microfone',

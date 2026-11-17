@@ -19,7 +19,7 @@ import { type Alvo, type Comando, type EstadoMotor, TODAS } from '../../shared/e
 import type { EstadoTranscricao, NivelEscuta, ResultadoTeste, SituacaoEscuta } from '../../shared/transcricao/tipos'
 import { nivelDb, type OpcoesPorta, PortaVoz, TAXA_AMOSTRAS } from '../../shared/transcricao/voz'
 import { AnalisadorFala, type BibliaDoAnalisador } from './analisador'
-import { ConexaoElevenLabs, type OpcoesElevenLabs } from './elevenlabs'
+import { ConexaoElevenLabs, explicarChaveElevenLabs, type OpcoesElevenLabs, pareceChaveElevenLabs } from './elevenlabs'
 import { ESQUEMA, FORMATO_TEXTO, lerEscolhas, montarPedido, sistemaDaIA } from './escolha'
 import { type Buscar, type ConexaoIA, criarProvedor, type ProvedorIA } from './ia'
 import { type FonteIndice, IndiceBiblia } from './indice'
@@ -30,7 +30,9 @@ import {
   type InstalacaoWhisper,
   type OpcoesServidorWhisper,
   ServidorWhisper,
+  limparTextoWhisper,
   situacaoWhisper,
+  vozDeTeste,
   type Transcritor,
 } from './whisper'
 
@@ -74,6 +76,8 @@ export interface DependenciasServico {
   pastaWhisper: string
   /** servidor do Whisper (testes: um de mentira) */
   criarServidorWhisper?: (o: OpcoesServidorWhisper) => ServidorLocal
+  /** fala do teste de velocidade (testes: uma de mentira) */
+  vozDeTeste?: () => Promise<Int16Array | null>
   criarProvedor?: (c: ConexaoIA) => ProvedorIA
   log?: { info: (...p: unknown[]) => void; aviso: (...p: unknown[]) => void }
 }
@@ -355,7 +359,7 @@ export class ServicoTranscricao extends EventEmitter {
     if (this.whisper) return this.whisper.pronto
     const e = this.d.config().transcricao.escuta
     const c = caminhosWhisper(this.d.pastaWhisper)
-    const opcoes: OpcoesServidorWhisper = { exe: c.exe, modelo: c.modelo(e.modeloLocal), threads: e.threadsLocal, log: this.d.log }
+    const opcoes: OpcoesServidorWhisper = { exe: c.exe, modelo: c.modelo(e.modeloLocal), vad: c.vad, threads: e.threadsLocal, log: this.d.log }
     const servidor = this.d.criarServidorWhisper ? this.d.criarServidorWhisper(opcoes) : new ServidorWhisper(opcoes)
     const atual = {
       chave: this.chaveWhisper(),
@@ -393,7 +397,7 @@ export class ServicoTranscricao extends EventEmitter {
 
   private whisperInstalado(): boolean {
     const s = this.instalacao ?? this.estadoWhisper()
-    return s.exe && s.modelos[this.d.config().transcricao.escuta.modeloLocal]
+    return s.exe && s.vad && s.modelos[this.d.config().transcricao.escuta.modeloLocal]
   }
 
   /** Baixa e confere o que falta (executável e o modelo escolhido). */
@@ -407,25 +411,36 @@ export class ServicoTranscricao extends EventEmitter {
   /** Mede quanto uma frase leva para ser transcrita neste computador (com o modelo e os núcleos escolhidos). */
   async testarWhisper(): Promise<ResultadoTeste> {
     const e = this.d.config().transcricao.escuta
-    const s = this.estadoWhisper()
-    if (!s.exe || !s.modelos[e.modeloLocal]) return { ok: false, mensagem: `Baixe primeiro o Whisper e o modelo ${e.modeloLocal}.` }
+    if (!this.estadoWhisper() || !this.whisperInstalado()) return { ok: false, mensagem: `Baixe primeiro o Whisper e o modelo ${e.modeloLocal}.` }
     try {
       const t0 = Date.now()
       const w = await this.prontoWhisper()
       const abriu = Date.now() - t0
-      // 8 s de um som baixo e constante: o tempo do Whisper quase não depende do que foi dito
-      const pcm = Int16Array.from({ length: TAXA_AMOSTRAS * 8 }, (_, i) => Math.round(300 * Math.sin(i / 7)))
+      // uma frase falada de verdade (voz do Windows): o detector de voz descartaria um som qualquer
+      const pcm = await (this.d.vozDeTeste ?? (() => vozDeTeste(this.d.pastaWhisper)))()
+      if (!pcm) {
+        if (!this.ligado) this.pararWhisper()
+        return { ok: false, mensagem: 'O Whisper abriu, mas não deu para gerar uma fala de teste (o Windows não tem voz instalada). Teste falando, na página Bíblia.' }
+      }
       const t1 = Date.now()
-      await w.transcrever(pcm)
+      const texto = limparTextoWhisper(await w.transcrever(pcm))
       const frase = (Date.now() - t1) / 1000
       if (!this.ligado) this.pararWhisper()
       const fmt = (n: number) => n.toFixed(1).replace('.', ',')
-      const bom = frase <= 4
+      // pelo tamanho da frase: transcrever em até 60% do tempo dela dá conta da fala sem parar, com folga
+      const duracao = pcm.length / TAXA_AMOSTRAS
+      const relativo = frase / duracao
+      const veredito =
+        relativo <= 0.6
+          ? `Dá conta da fala ao vivo (o texto chega ~${fmt(frase)} s depois de cada frase).`
+          : relativo <= 0.9
+            ? 'No limite: vai atrasar quando o pregador falar sem parar. Use um modelo menor ou mais núcleos.'
+            : 'Lento demais para a fala ao vivo: use um modelo menor ou mais núcleos.'
       return {
-        ok: bom,
-        mensagem: `Uma frase levou ${fmt(frase)} s (modelo ${e.modeloLocal}, ${e.threadsLocal} núcleos; abrir levou ${fmt(abriu / 1000)} s). ${
-          bom ? 'Dá conta da fala ao vivo.' : 'Lento para a fala ao vivo: use o modelo base ou mais núcleos.'
-        }`,
+        ok: relativo <= 0.6,
+        mensagem: `Uma frase de ${fmt(duracao)} s levou ${fmt(frase)} s (modelo ${e.modeloLocal}, ${e.threadsLocal} núcleos; abrir levou ${fmt(abriu / 1000)} s). ${veredito} Ouviu: “${
+          texto || '(nada)'
+        }”.`,
       }
     } catch (erro) {
       return { ok: false, mensagem: erro instanceof Error ? erro.message : String(erro) }
@@ -636,10 +651,25 @@ export class ServicoTranscricao extends EventEmitter {
     return this.criarProvedor({ tipo: c.tipo, url: c.url, chave: c.chave.trim(), modelo: c.modelo.trim() }).listarModelos()
   }
 
-  /** Abre uma sessão no ElevenLabs sem mandar áudio (não custa) e fecha. */
-  testarElevenLabs(): Promise<ResultadoTeste> {
+  /**
+   * Abre uma sessão no ElevenLabs sem mandar áudio (não custa) e fecha. Se ele recusar, pergunta à API comum o
+   * motivo (a transcrição em tempo real responde sempre "You must be authenticated", com chave errada ou sem chave).
+   */
+  async testarElevenLabs(): Promise<ResultadoTeste> {
     const chave = this.d.config().transcricao.escuta.chaveElevenLabs.trim()
-    if (!chave) return Promise.resolve({ ok: false, mensagem: 'Falta a chave do ElevenLabs.' })
+    if (!chave) return { ok: false, mensagem: 'Falta a chave do ElevenLabs.' }
+    const r = await this.abrirTesteElevenLabs(chave)
+    if (r.ok) return r
+    const motivo = await explicarChaveElevenLabs(chave, this.d.buscar ?? fetch)
+    // o próprio ElevenLabs já explica o formato quando é o ID da chave
+    const formato =
+      pareceChaveElevenLabs(chave) || motivo?.startsWith('Isto é o ID da chave')
+        ? ''
+        : `Isto não parece uma chave de API do ElevenLabs: elas começam com sk_ e têm uns 51 caracteres (a daqui tem ${chave.length}, sem sk_). `
+    return { ok: false, mensagem: `${formato}${motivo ?? r.mensagem}` }
+  }
+
+  private abrirTesteElevenLabs(chave: string): Promise<ResultadoTeste> {
     const criar = this.d.criarConexao ?? ((o: OpcoesElevenLabs) => new ConexaoElevenLabs(o))
     return new Promise((resolver) => {
       const c = criar({ chave, idioma: 'pt' })

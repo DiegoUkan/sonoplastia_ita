@@ -15,6 +15,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { createReadStream, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { constants as constantesSo, setPriority } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -23,7 +24,7 @@ import { TAXA_AMOSTRAS } from '../../shared/transcricao/voz'
 import { ArquivoZip } from '../apresentacoes/zip'
 import { baixarArquivo, type Buscar, descartarParcial } from '../site/baixar'
 
-export type ModeloWhisper = 'base' | 'small'
+export type ModeloWhisper = 'base' | 'small' | 'turbo'
 
 /** O que o programa baixa (versão fixa; trocar = conferir de novo o SHA-256). */
 export const WHISPER = {
@@ -47,6 +48,24 @@ export const WHISPER = {
       bytes: 190_085_487,
       sha256: 'ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb',
     },
+    // large-v3-turbo: acertou a leitura inteira em 16/11 (o base errava "vossas petições"); ~5 s por frase com 8
+    // núcleos de um Ryzen 5 7600, impossível no i3 da igreja
+    turbo: {
+      arquivo: 'ggml-large-v3-turbo-q5_0.bin',
+      url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin',
+      bytes: 574_041_195,
+      sha256: '394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2',
+    },
+  },
+  /**
+   * Detector de voz (Silero) do próprio whisper.cpp: sem ele, silêncio, ruído ou um estalo viram "O que é isso?"
+   * (medido em 16/11: todas as vezes, com confiança alta). Com ele voltam vazios em ~0,1 s.
+   */
+  vad: {
+    arquivo: 'ggml-silero-v6.2.0.bin',
+    url: 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin',
+    bytes: 885_098,
+    sha256: '2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987',
   },
 } as const
 
@@ -60,13 +79,20 @@ const CONTEXTO_AUDIO = 900
 export const caminhosWhisper = (pasta: string) => ({
   exe: join(pasta, 'bin', 'whisper-server.exe'),
   modelo: (m: ModeloWhisper) => join(pasta, 'modelos', WHISPER.modelos[m].arquivo),
+  vad: join(pasta, 'modelos', WHISPER.vad.arquivo),
 })
 
 export type { InstalacaoWhisper }
 
 export function situacaoWhisper(pasta: string): InstalacaoWhisper {
   const c = caminhosWhisper(pasta)
-  return { pasta, versao: WHISPER.versao, exe: existsSync(c.exe), modelos: { base: existsSync(c.modelo('base')), small: existsSync(c.modelo('small')) } }
+  return {
+    pasta,
+    versao: WHISPER.versao,
+    exe: existsSync(c.exe),
+    vad: existsSync(c.vad),
+    modelos: { base: existsSync(c.modelo('base')), small: existsSync(c.modelo('small')), turbo: existsSync(c.modelo('turbo')) },
+  }
 }
 
 export async function sha256DoArquivo(caminho: string): Promise<string> {
@@ -86,6 +112,7 @@ async function baixarConferido(buscar: Buscar, url: string, bytes: number, sha25
     throw new Error(`${basename(destino)} chegou diferente do esperado (SHA-256 não confere). Foi apagado; tente de novo.`)
   }
   renameSync(parcial, destino)
+  rmSync(`${parcial}.etag`, { force: true }) // marcador da retomada: não serve mais
 }
 
 /**
@@ -111,6 +138,10 @@ export async function instalarWhisper(o: { pasta: string; modelo: ModeloWhisper;
     }
     rmSync(zip, { force: true })
     if (!existsSync(c.exe)) throw new Error('O pacote do Whisper não tinha o whisper-server.exe.')
+  }
+  if (!existsSync(c.vad)) {
+    const v = WHISPER.vad
+    await baixarConferido(o.buscar, v.url, v.bytes, v.sha256, c.vad, (f, t) => o.aoProgresso(f, t, 'o detector de voz'))
   }
   const m = WHISPER.modelos[o.modelo]
   if (!existsSync(c.modelo(o.modelo))) {
@@ -170,11 +201,95 @@ export function limparTextoWhisper(texto: string): string {
   return t
 }
 
+/**
+ * UTF-8 onde é válido; byte solto vira a letra do Latin-1. O modelo às vezes escreve uma letra acentuada como um
+ * byte só (medido em 16/11: "B" + 0xED + "blia" = "Bíblia"), o que em UTF-8 é inválido e viraria "�".
+ */
+export function decodificarMisto(b: Uint8Array): string {
+  let s = ''
+  let i = 0
+  while (i < b.length) {
+    const c = b[i]!
+    const n = c < 0x80 ? 1 : (c & 0xe0) === 0xc0 ? 2 : (c & 0xf0) === 0xe0 ? 3 : (c & 0xf8) === 0xf0 ? 4 : 0
+    let valido = n > 0 && i + n <= b.length
+    for (let k = 1; valido && k < n; k++) valido = (b[i + k]! & 0xc0) === 0x80
+    if (n > 1 && valido) {
+      s += Buffer.from(b.subarray(i, i + n)).toString('utf8')
+      i += n
+    } else {
+      s += String.fromCharCode(c)
+      i++
+    }
+  }
+  return s
+}
+
+/** Lê o PCM de um WAV 16 bits mono 16 kHz (procura o bloco "data"; o Windows às vezes põe outros antes). */
+export function pcmDoWav(b: Buffer): Int16Array | null {
+  if (b.length < 44 || b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WAVE') return null
+  let pos = 12
+  while (pos + 8 <= b.length) {
+    const id = b.toString('ascii', pos, pos + 4)
+    const tam = b.readUInt32LE(pos + 4)
+    if (id === 'data') {
+      const dados = b.subarray(pos + 8, Math.min(b.length, pos + 8 + tam))
+      const copia = new Uint8Array(dados.length - (dados.length % 2))
+      copia.set(dados.subarray(0, copia.length))
+      return new Int16Array(copia.buffer)
+    }
+    pos += 8 + tam + (tam % 2)
+  }
+  return null
+}
+
+/**
+ * Uma frase falada para o teste de velocidade, gerada uma vez pela voz do próprio Windows (em português, se tiver)
+ * e guardada na pasta do Whisper. null se o Windows não conseguir falar.
+ */
+export async function vozDeTeste(pasta: string): Promise<Int16Array | null> {
+  const arquivo = join(pasta, 'teste-voz.wav')
+  if (!existsSync(arquivo)) {
+    const script = [
+      'Add-Type -AssemblyName System.Speech',
+      '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer',
+      "$v = $s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like 'pt*' } | Select-Object -First 1",
+      'if ($v) { $s.SelectVoice($v.VoiceInfo.Name) }',
+      '$f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)',
+      '$s.SetOutputToWaveFile($env:SONOPLASTIA_VOZ_TESTE, $f)',
+      "$s.Speak('Vamos abrir a Bíblia em João, capítulo três, versículo dezesseis: porque Deus amou o mundo de tal maneira.')",
+      '$s.Dispose()',
+    ].join('\n')
+    mkdirSync(pasta, { recursive: true })
+    const ok = await new Promise<boolean>((fim) => {
+      // -EncodedCommand (UTF-16LE em base64): os acentos chegam certos ao PowerShell
+      const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+        windowsHide: true,
+        stdio: 'ignore',
+        env: { ...process.env, SONOPLASTIA_VOZ_TESTE: arquivo },
+      })
+      const t = setTimeout(() => p.kill(), 30_000)
+      p.once('error', () => fim(false))
+      p.once('exit', (codigo) => {
+        clearTimeout(t)
+        fim(codigo === 0 && existsSync(arquivo))
+      })
+    })
+    if (!ok) return null
+  }
+  try {
+    return pcmDoWav(await readFile(arquivo))
+  } catch {
+    return null
+  }
+}
+
 // ------------------------------------------------------------------ servidor
 
 export interface OpcoesServidorWhisper {
   exe: string
   modelo: string
+  /** detector de voz (Silero): o que não é fala nem chega a ser transcrito */
+  vad: string
   threads: number
   log?: { info: (...p: unknown[]) => void; aviso: (...p: unknown[]) => void }
 }
@@ -212,7 +327,7 @@ export class ServidorWhisper extends EventEmitter implements Transcritor {
 
   async iniciar(): Promise<void> {
     if (!existsSync(this.opcoes.exe)) throw new Error('O Whisper não está instalado (Configurações → Bíblia automática).')
-    if (!existsSync(this.opcoes.modelo)) throw new Error('O modelo do Whisper não está baixado (Configurações → Bíblia automática).')
+    if (!existsSync(this.opcoes.modelo) || !existsSync(this.opcoes.vad)) throw new Error('O modelo do Whisper não está baixado (Configurações → Bíblia automática).')
     this.porta = await portaLivre()
     const args = [
       '-m', this.opcoes.modelo,
@@ -222,6 +337,7 @@ export class ServidorWhisper extends EventEmitter implements Transcritor {
       '-sns',
       '-ac', String(CONTEXTO_AUDIO),
       '--prompt', PROMPT_WHISPER,
+      '--vad', '-vm', this.opcoes.vad,
       '--host', '127.0.0.1',
       '--port', String(this.porta),
     ]
@@ -269,16 +385,13 @@ export class ServidorWhisper extends EventEmitter implements Transcritor {
     if (!this.vivo) throw new Error('O Whisper não está aberto.')
     const corpo = new FormData()
     corpo.append('file', new Blob([new Uint8Array(wavDe(pcm))], { type: 'audio/wav' }), 'frase.wav')
-    corpo.append('response_format', 'json')
+    // texto simples (não JSON): o JSON troca por "�" as letras que o modelo escreve em Latin-1 (ver decodificarMisto)
+    corpo.append('response_format', 'text')
     corpo.append('temperature', '0')
     const r = await fetch(`http://127.0.0.1:${this.porta}/inference`, { method: 'POST', body: corpo, signal: AbortSignal.timeout(60_000) })
-    const texto = await r.text()
-    if (!r.ok) throw new Error(`O Whisper respondeu ${r.status}: ${texto.slice(0, 200)}`)
-    try {
-      return String((JSON.parse(texto) as { text?: unknown }).text ?? '')
-    } catch {
-      throw new Error('O Whisper respondeu algo que não é JSON.')
-    }
+    const bytes = Buffer.from(await r.arrayBuffer())
+    if (!r.ok) throw new Error(`O Whisper respondeu ${r.status}: ${bytes.toString('utf8').slice(0, 200)}`)
+    return decodificarMisto(bytes).replace(/\s+/g, ' ').trim()
   }
 
   parar(): void {
@@ -295,6 +408,8 @@ export class ServidorWhisper extends EventEmitter implements Transcritor {
 const PAUSA_QUADROS = 5
 /** fala mínima numa frase: menos que isso é tosse, clique, "é…" */
 const VOZ_MINIMA_QUADROS = 6
+/** e pelo menos meio segundo de fala seguida */
+const VOZ_CONTINUA_QUADROS = 5
 /** frase mais longa: corta no próximo silêncio depois de 14 s, ou à força aos 17 s (cabe na janela de 18 s) */
 const FRASE_LONGA_QUADROS = 140
 const FRASE_MAXIMA_QUADROS = 170
@@ -310,6 +425,10 @@ export class ConexaoWhisper extends EventEmitter {
   private frase: Int16Array[] = []
   private comVoz = 0
   private silencio = 0
+  private recentes: boolean[] = []
+  /** quadros seguidos com voz agora, e o maior trecho seguido da frase */
+  private seguidos = 0
+  private maiorSequencia = 0
   private fila: Int16Array[][] = []
   private trabalhando = false
   private fechada = false
@@ -333,8 +452,15 @@ export class ConexaoWhisper extends EventEmitter {
     )
   }
 
-  enviar(pcm: Int16Array, voz = true): void {
+  /** `vozBruta`: o nível deste quadro passou do limiar da porta (sozinho não basta: um clique também passa) */
+  enviar(pcm: Int16Array, vozBruta = true): void {
     if (this.fechada || this.encerrando) return
+    // voz = 3 dos últimos 5 quadros acima do limiar (como na porta): cliques, teclado e respiração soltos não contam
+    this.recentes.push(vozBruta)
+    if (this.recentes.length > 5) this.recentes.shift()
+    const voz = this.recentes.filter(Boolean).length >= 3
+    this.seguidos = voz ? this.seguidos + 1 : 0
+    if (this.seguidos > this.maiorSequencia) this.maiorSequencia = this.seguidos
     // antes da primeira voz, guarda só ~0,5 s (o começo da palavra)
     if (!this.comVoz && !voz) {
       this.frase.push(pcm)
@@ -357,10 +483,12 @@ export class ConexaoWhisper extends EventEmitter {
     this.frase = []
     this.comVoz = 0
     this.silencio = 0
+    this.maiorSequencia = this.seguidos
   }
 
   private fecharFrase(): void {
-    if (this.comVoz >= VOZ_MINIMA_QUADROS) {
+    // fala de verdade tem um trecho contínuo: sem ele, o Whisper inventa ("O que é isso?")
+    if (this.comVoz >= VOZ_MINIMA_QUADROS && this.maiorSequencia >= VOZ_CONTINUA_QUADROS) {
       // tira o silêncio do fim (deixa 0,2 s): o Whisper inventa texto em silêncio longo
       const manter = Math.max(1, this.frase.length - Math.max(0, this.silencio - 2))
       this.fila.push(this.frase.slice(0, manter))
@@ -416,7 +544,7 @@ export class ConexaoWhisper extends EventEmitter {
   /** Transcreve a frase em andamento e o que está na fila (até 20 s) e fecha. */
   async encerrar(): Promise<void> {
     if (this.fechada || this.encerrando) return
-    if (this.comVoz >= VOZ_MINIMA_QUADROS) this.fecharFrase()
+    if (this.comVoz) this.fecharFrase()
     this.encerrando = true
     if (!this.abriu || (!this.fila.length && !this.trabalhando)) {
       this.fechar(false)

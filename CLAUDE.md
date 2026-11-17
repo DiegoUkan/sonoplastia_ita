@@ -436,6 +436,29 @@ saída).
     erra grafias ("voças peticões"), mas acerta as referências ("Habacuque 3, 17", "Filipenses, capítulo 4,
     versículo 6"); o small acerta a leitura literal. Transcrição do áudio inteiro de uma vez (whisper-cli) pulou uma
     frase no small: por isso frase por frase.
+  - **"O que é isso?" no silêncio** (relato do usuário em 16/11): o Whisper inventa essa frase para qualquer trecho
+    sem fala (silêncio, ruído, um estalo; medido: todas as vezes, com confiança alta, então a probabilidade de "não é
+    fala" dele não serve). Duas defesas: (1) o **detector de voz Silero do whisper.cpp** (`--vad -vm
+    ggml-silero-v6.2.0.bin`, 885 KB, SHA-256 fixado, baixado junto; sem ele a instalação conta como incompleta):
+    o que não é fala volta vazio em ~0,1 s, a fala de verdade sai igual (+0,08 s); (2) a conexão só manda a frase
+    com voz suavizada (3 de 5 quadros, como a porta) e um trecho contínuo de 0,5 s: cliques, teclado e respiração
+    soltos não somam mais.
+  - **"O Whisper entende tudo errado"** (usuário, 16/11, com fala real neste PC): o base é fraco fora da voz sintética.
+    Modelo novo **turbo** (`ggml-large-v3-turbo-q5_0.bin`, 574 MB, SHA-256 `394221…a7e2`). Medido nas mesmas frases
+    (Ryzen 5 7600): base 2 núcleos ~0,9 s/frase e erra a leitura; small 4 núcleos ~3,1 s, erra pouco; **turbo 8
+    núcleos ~5,2 s e acertou tudo** ("as vossas petições", "Habacuque 3, 17"); turbo 4 núcleos ~8,7 s; sem o `-ac 900`
+    o turbo fica ~65% mais lento e acerta igual. **No i3 da igreja o turbo não dá conta** (~30 s por frase): lá, local,
+    só base/small; para acertar bem no i3, o ElevenLabs. "Testar a velocidade" julga pela duração da frase (dá conta
+    se transcreve em até 60% do tempo dela). Núcleos: até 16.
+  - **ElevenLabs "You must be authenticated"** (usuário, 16/11): o campo tinha o **ID da chave** (64 caracteres, sem
+    `sk_`), não a chave. A transcrição em tempo real responde igual sem chave ou com chave errada; a API comum
+    (`GET /v1/user`) diz o motivo (`api_key_id_used_as_api_key`, `invalid_api_key`, `missing_permissions`…). Por isso
+    "Testar o ElevenLabs", quando a conexão é recusada, pergunta lá e explica em português (`explicarChaveElevenLabs`).
+    A chave de verdade (`sk_` + 48) só aparece quando é criada ou renovada no ElevenLabs.
+  - O modelo às vezes escreve uma letra acentuada em Latin-1 (um byte: "B" + 0xED + "blia"); no JSON do servidor
+    isso vira "�". Por isso o pedido é `response_format=text` e a resposta é decodificada mista (`decodificarMisto`).
+  - "Testar a velocidade" usa uma frase falada pela voz do próprio Windows (gerada uma vez pelo PowerShell,
+    `whisper\teste-voz.wav`) e mostra o que o Whisper ouviu.
   - O Whisper **não manda texto parcial**: o texto aparece ~1 s (aqui) a ~2,5 s (i3) depois do fim de cada frase
     (enquanto isso a fala ao vivo mostra "…"). Isso pesa no 2º passo ("seguir a leitura").
   - Rodar o executável baixado no PC de desenvolvimento precisou de autorização do usuário (o classificador de
@@ -624,10 +647,12 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
     Regra geral: na dúvida, não passa (o operador passa com o Próximo/PageDown, e PageUp desfaz). Mostrar na tela de
     comando o que o programa está seguindo e por quê.
 13. **Transcrição local (Whisper): conferir no PC da igreja** (feito em 2026-11-16, ver Decisões). Configurações →
-    Bíblia automática → "Baixar" (~70 MB, uma vez) → "Testar a velocidade" (bom: até ~4 s por frase; se passar, deixar
+    Bíblia automática → "Baixar" (~70 MB, uma vez; quem baixou antes da correção do "O que é isso?" clica de novo para
+    pegar o detector de voz, 1 MB) → "Testar a velocidade" (bom: até ~4 s por frase; se passar, deixar
     no base e/ou subir para 3 núcleos e testar de novo). Depois, Bíblia → Automático com a mesa ligada e alguém
-    falando; olhar o Gerenciador de Tarefas durante um vídeo (o `whisper-server` fica com prioridade baixa). Se o base
-    errar demais na leitura e o i3 aguentar, testar o small. Para o 2º passo (passo 12), o Whisper não manda texto
+    falando; olhar o Gerenciador de Tarefas durante um vídeo (o `whisper-server` fica com prioridade baixa). O base erra
+    muito com fala real (usuário, 16/11); testar o small no i3 e, se atrasar, usar o ElevenLabs lá (com a chave `sk_`
+    certa). O turbo é o bom, mas só em PC forte (neste PC de desenvolvimento: turbo com 8 núcleos). Para o 2º passo (passo 12), o Whisper não manda texto
     parcial: seguir a leitura com ele teria ~2,5 s de atraso no i3 (pensar em frases mais curtas ou no
     `whisper-stream`, ou usar o ElevenLabs só para isso).
 
