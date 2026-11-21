@@ -287,6 +287,14 @@ saída).
   Habacuque 3:17 e 1 Coríntios 13:4 também. Corrigido no caminho: o ponto final que o Whisper põe ao cortar na pausa
   ("…em Filipenses." | "Capítulo 4, versículo 6.") escondia o livro do trecho seguinte. **Ainda não rodou no PC da
   igreja** (ver passo 13).
+- **2026-11-21 (sábado, depois do culto, no PC da igreja): pedidos do uso real + diagnóstico, sem código.** O programa
+  foi usado no culto (a versão que já estava compilada neste PC, de 15/11; nesta sessão o código foi atualizado pelo
+  `git pull`, mas o programa não foi recompilado nem fechado). O usuário
+  pediu: vídeo também no Palco, ferramentas de tela cheia voltando depois da mídia, regra para o fim da mídia e o Esc,
+  referência bíblica maior e saber por que um vídeo travou. **Plano completo em [`AJUSTES-2026-11-21.md`](AJUSTES-2026-11-21.md)**
+  (passo 14). Achado: o vídeo do site "21⧸11. O paralítico no tanque de Betesda" (mídia 12) é **AV1 2560×1440**, que
+  nenhuma placa deste PC decodifica (o i3 faz no processador); o download estava completo (tamanho do manifesto e
+  duração inteira). O ffmpeg do Holyrics nem lê AV1.
 
 ## Decisões
 
@@ -655,11 +663,20 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
     certa). O turbo é o bom, mas só em PC forte (neste PC de desenvolvimento: turbo com 8 núcleos). Para o 2º passo (passo 12), o Whisper não manda texto
     parcial: seguir a leitura com ele teria ~2,5 s de atraso no i3 (pensar em frases mais curtas ou no
     `whisper-stream`, ou usar o ElevenLabs só para isso).
+14. **Ajustes de 21/11: executar o [`AJUSTES-2026-11-21.md`](AJUSTES-2026-11-21.md)** (no PC de desenvolvimento, parte
+    por parte, um commit cada): A referência bíblica maior; B vídeo também no Palco (com sincronia e selo do tempo);
+    C fim do vídeo e Esc (`video:terminou`, "sair do ar" por padrão, Limpar pausa o vídeo); D ferramentas de tela
+    cheia esperam e voltam depois da mídia; E vídeo pesado (ler o codec, converter AV1/1440p com um ffmpeg novo, log
+    de travadas). As "Decisões deste plano" no topo do arquivo ainda podem mudar com o usuário. Até lá, no PC da
+    igreja: Telas → Palco → ligar "Mostrar vídeos nesta saída" e não usar vídeo AV1 (pedir H.264 até 1080p).
 
 ## Pendências conhecidas
 
 - "Limpar" esconde o conteúdo, mas um vídeo continua tocando (com som) por baixo. Falta a opção
-  "ao limpar: pausar o vídeo" e o "ao terminar" do vídeo (preto / logo / congelar / próximo).
+  "ao limpar: pausar o vídeo" e o "ao terminar" do vídeo (preto / logo / congelar / próximo). Planejado no
+  `AJUSTES-2026-11-21.md`, parte C.
+- Vídeo AV1/HEVC/VP9 ou acima de 1080p entra na biblioteca como "pronto" (a sonda só confere se toca) e pode travar
+  neste PC. Planejado no `AJUSTES-2026-11-21.md`, parte E.
 - Biblioteca: ainda sem coleções/etiquetas; arrastar para a lixeira não existe (só o botão).
 - Bíblia: não há catálogo fixo para baixar versões (só arquivo ou endereço colado), porque não há uma
   fonte confirmada; ver com o usuário.
