@@ -9,12 +9,36 @@
  * Os tempos são guardados como instantes (ms desde 1970): cada janela calcula o que mostrar com o
  * relógio do próprio computador, sem o motor precisar avisar a cada segundo.
  */
+import type { ConfigSaida } from './config'
+import type { EstadoFerramentas } from './estado'
 
 /** Ferramentas que ligam e desligam pelo motor (o relógio é da configuração de cada saída). */
 export const FERRAMENTAS = ['temporizador', 'qr', 'mensagem', 'sorteio'] as const
 export type Ferramenta = (typeof FERRAMENTAS)[number]
 
 export type ModoFerramenta = 'canto' | 'tela'
+
+/**
+ * Modo de cada ferramenta nesta saída (null = não aparece). `comConteudo`: há algo visível no ar na saída
+ * (não vazio e sem Limpar); o relógio em tela cheia (da configuração) vai para o canto, para não cobrir a mídia.
+ * As ferramentas em tela cheia que estão esperando o conteúdo sair (`emEspera`) fazem o mesmo: o temporizador
+ * vai para o canto e o QR e a mensagem somem; sem conteúdo (fim do vídeo, Parar, Esc), voltam em tela cheia.
+ */
+export function modosNaSaida(saidaId: string, config: Pick<ConfigSaida, 'relogio'>, f: EstadoFerramentas | undefined, comConteudo = false) {
+  const de = (k: Ferramenta): ModoFerramenta | null => {
+    const modo = f?.exibicao[k]?.[saidaId] ?? null
+    if (modo !== 'tela' || !comConteudo || !f?.emEspera?.[k]?.[saidaId]) return modo
+    return k === 'temporizador' ? 'canto' : null
+  }
+  return {
+    relogio: config.relogio === 'nao' ? null : config.relogio === 'tela' && comConteudo ? ('canto' as const) : config.relogio,
+    temporizador: de('temporizador'),
+    qr: f?.qr.link ? de('qr') : null,
+    mensagem: f?.mensagem.trim() ? de('mensagem') : null,
+    // o sorteio é sempre em tela cheia
+    sorteio: de('sorteio') ? ('tela' as const) : null,
+  }
+}
 
 /** Os 9 pontos da tela onde uma ferramenta "no canto" pode ficar. */
 export const POSICOES = ['sup-esq', 'sup-centro', 'sup-dir', 'meio-esq', 'centro', 'meio-dir', 'inf-esq', 'inf-centro', 'inf-dir'] as const

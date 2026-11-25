@@ -6,13 +6,15 @@
 import { EventEmitter } from 'node:events'
 import { createReadStream, existsSync, promises as fsp, rmSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { basename, extname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 import type { FiltroMidias, Midia, ResultadoImportacao, SituacaoMidia, TipoMidia } from '../../shared/dados'
 import { urlMidia } from '../../shared/midia'
 import type { InfoSiteMidia } from '../../shared/site'
+import { type CodecVideo, descreverFormato, type FormatoVideo, motivoPesado } from '../../shared/video'
 import type { Banco } from '../banco'
-import { converter } from '../ffmpeg'
+import { converter, ehFfmpegAntigo } from '../ffmpeg'
 import { log } from '../log'
+import { lerFormatoVideo } from './formato'
 import type { Sonda } from './sonda'
 
 const EXTENSOES: Record<TipoMidia, string[]> = {
@@ -42,6 +44,9 @@ interface Linha {
   detalhe: string | null
   criado_em: string
   excluido_em: string | null
+  codec: CodecVideo | null
+  qps: number | null
+  pesado: string | null
 }
 
 export async function sha256(caminho: string): Promise<string> {
@@ -76,22 +81,36 @@ export class BibliotecaMidias extends EventEmitter {
   private progresso = new Map<number, number>()
   /** o que se sabe do site sobre cada mídia que veio de lá (o sincronizador do site preenche) */
   fonteSite: (() => Map<number, InfoSiteMidia>) | null = null
+  /** converter sozinho os vídeos pesados (Configurações → Vídeos e som) */
+  converterPesados: () => boolean = () => true
+  /** o arquivo está no ar agora (a troca do vídeo convertido espera ele sair) */
+  emUso: (arquivo: string) => boolean = () => false
+  private filaOtimizar: number[] = []
+  private otimizandoAgora = false
+  private progressoOtimizar = new Map<number, number>()
+  private readonly ffmpegAtual: () => string | null
 
   constructor(
     private readonly db: Banco,
     private readonly pastas: { base: string; miniaturas: string },
     private readonly sonda: Sonda,
-    private readonly ffmpeg: string | null,
+    /** o caminho, ou uma função (o conversor novo pode ser baixado com o programa aberto) */
+    ffmpeg: string | null | (() => string | null),
   ) {
     super()
+    this.ffmpegAtual = typeof ffmpeg === 'function' ? ffmpeg : () => ffmpeg
   }
 
-  /** Retoma o que ficou pela metade (programa fechado durante a análise ou conversão). */
+  /** Retoma o que ficou pela metade (programa fechado durante a análise ou conversão) e os vídeos pesados. */
   retomar(): void {
     const ids = this.db
       .prepare("select id from midias where situacao in ('analisando', 'convertendo') and excluido_em is null")
       .all() as Array<{ id: number }>
     for (const { id } of ids) this.enfileirar(id)
+    void this.conferirFormatosAntigos().then(() => {
+      const pesados = this.db.prepare("select id from midias where tipo = 'video' and pesado is not null and situacao = 'pronto' and excluido_em is null").all() as Array<{ id: number }>
+      for (const { id } of pesados) this.pedirOtimizar(id)
+    })
   }
 
   listar(f: FiltroMidias): Midia[] {
@@ -133,6 +152,9 @@ export class BibliotecaMidias extends EventEmitter {
       situacao: l.situacao,
       detalhe: l.detalhe,
       progresso: this.progresso.get(l.id) ?? null,
+      formato: l.tipo === 'video' && (l.codec || l.qps) ? descreverFormato({ codec: l.codec, largura: l.largura, altura: l.altura, qps: l.qps }) || null : null,
+      pesado: l.pesado,
+      otimizando: this.progressoOtimizar.get(l.id) ?? null,
       criadoEm: l.criado_em,
       excluida: l.excluido_em !== null,
       site: site?.get(l.id) ?? null,
@@ -186,11 +208,13 @@ export class BibliotecaMidias extends EventEmitter {
     const destino = nomeLivre(pasta, nomeArquivo)
     await moverArquivo(caminho, destino)
     this.fila = this.fila.filter((x) => x !== id)
+    this.filaOtimizar = this.filaOtimizar.filter((x) => x !== id)
     this.progresso.delete(id)
     this.db
       .prepare(
         `update midias set tipo = ?, nome = ?, arquivo = ?, sha256 = ?, bytes = ?, duracao = null, largura = null,
-         altura = null, miniatura = null, situacao = 'analisando', detalhe = null, excluido_em = null where id = ?`,
+         altura = null, miniatura = null, situacao = 'analisando', detalhe = null, excluido_em = null,
+         codec = null, qps = null, pesado = null where id = ?`,
       )
       .run(tipo, nome.trim() || l.nome, destino, outra ? null : hash, statSync(destino).size, id)
     for (const c of [l.arquivo, l.miniatura]) if (c && c !== destino) rmSync(c, { force: true })
@@ -322,13 +346,15 @@ export class BibliotecaMidias extends EventEmitter {
            miniatura = coalesce(?, miniatura) where id = ?`,
         )
         .run(r.duracao ?? null, r.largura ?? null, r.altura ?? null, miniatura, id)
+      if (l.tipo === 'video') await this.conferirFormato(id, l.arquivo, r.largura ?? null, r.altura ?? null)
       return
     }
     if (l.tipo === 'imagem' || jaConvertida) {
       this.marcar(id, 'erro', r.erro ?? 'Não foi possível abrir este arquivo.')
       return
     }
-    if (!this.ffmpeg) {
+    const ffmpeg = this.ffmpegAtual()
+    if (!ffmpeg) {
       this.marcar(id, 'erro', 'Formato que o programa não toca, e não há ffmpeg para converter.')
       return
     }
@@ -338,7 +364,7 @@ export class BibliotecaMidias extends EventEmitter {
     const ext = l.tipo === 'video' ? '.mp4' : '.mp3'
     const destino = nomeLivre(join(this.pastas.base, l.tipo), `${basename(l.arquivo, extname(l.arquivo))} (convertido)${ext}`)
     let ultimoAviso = 0
-    await converter(this.ffmpeg, l.arquivo, destino, l.tipo === 'video' ? 'video' : 'audio', l.duracao, (p) => {
+    await converter(ffmpeg, l.arquivo, destino, l.tipo === 'video' ? 'video' : 'audio', l.duracao, (p) => {
       this.progresso.set(id, p)
       if (Date.now() - ultimoAviso > 1000) {
         ultimoAviso = Date.now()
@@ -351,5 +377,136 @@ export class BibliotecaMidias extends EventEmitter {
     rmSync(l.arquivo, { force: true })
     log.info(`Mídia ${id} convertida: ${destino}`)
     await this.analisar(id, true)
+  }
+
+  // ------------------------------------------------------------------ vídeos pesados para este PC
+
+  /**
+   * Lê o formato do vídeo (codec, tamanho, quadros por segundo; `largura`/`altura` da sonda têm prioridade) e
+   * grava por que ele pesa para este computador. Pesado: entra na fila de conversão para H.264 1080p.
+   */
+  private async conferirFormato(id: number, arquivo: string, largura: number | null, altura: number | null): Promise<void> {
+    const lido = await lerFormatoVideo(arquivo).catch((e) => {
+      log.aviso(`Mídia ${id}: não deu para ler o formato de ${basename(arquivo)}`, e)
+      return null
+    })
+    const f: FormatoVideo = { codec: lido?.codec ?? null, largura: largura ?? lido?.largura ?? null, altura: altura ?? lido?.altura ?? null, qps: lido?.qps ?? null }
+    const pesado = motivoPesado(f)
+    this.db.prepare('update midias set codec = ?, qps = ?, pesado = ? where id = ?').run(f.codec, f.qps, pesado, id)
+    if (pesado) {
+      log.aviso(`Mídia ${id} (${basename(arquivo)}) pesa para este computador: ${pesado} (${descreverFormato(f)}).`)
+      this.pedirOtimizar(id)
+    }
+  }
+
+  /** "AV1 2560×1440 30 qps (pesado: …)" do vídeo da biblioteca com esse arquivo (para o registro no log). */
+  formatoDoArquivo(arquivo: string): string | null {
+    const l = this.db
+      .prepare('select codec, largura, altura, qps, pesado from midias where arquivo = ? and excluido_em is null')
+      .get(arquivo) as { codec: CodecVideo | null; largura: number | null; altura: number | null; qps: number | null; pesado: string | null } | undefined
+    if (!l) return null
+    const d = descreverFormato(l)
+    return d ? `${d}${l.pesado ? ' (pesado para este computador)' : ''}` : null
+  }
+
+  /** Vídeos analisados antes de 25/11 não têm o formato: lê agora (alguns ms por arquivo). */
+  private async conferirFormatosAntigos(): Promise<void> {
+    const linhas = this.db
+      .prepare("select id, arquivo, largura, altura from midias where tipo = 'video' and situacao = 'pronto' and codec is null and excluido_em is null")
+      .all() as Array<{ id: number; arquivo: string; largura: number | null; altura: number | null }>
+    for (const l of linhas) {
+      if (existsSync(l.arquivo)) await this.conferirFormato(l.id, l.arquivo, l.largura, l.altura)
+    }
+    if (linhas.length) this.emit('mudou')
+  }
+
+  /** Converte de novo, agora, os vídeos pesados que ficaram esperando (ex.: depois de baixar o conversor novo). */
+  otimizarPesados(): void {
+    const ids = this.db.prepare("select id from midias where tipo = 'video' and pesado is not null and excluido_em is null").all() as Array<{ id: number }>
+    for (const { id } of ids) this.pedirOtimizar(id, true)
+  }
+
+  private pedirOtimizar(id: number, mesmoDesligado = false): void {
+    if (!mesmoDesligado && !this.converterPesados()) return
+    if (!this.filaOtimizar.includes(id)) this.filaOtimizar.push(id)
+    void this.trabalharOtimizar()
+  }
+
+  private async trabalharOtimizar(): Promise<void> {
+    if (this.otimizandoAgora) return
+    this.otimizandoAgora = true
+    try {
+      for (let id = this.filaOtimizar.shift(); id !== undefined; id = this.filaOtimizar.shift()) {
+        try {
+          await this.otimizar(id)
+        } catch (e) {
+          log.erro(`Mídia ${id}: a conversão do vídeo pesado falhou`, e)
+          this.db.prepare('update midias set detalhe = ? where id = ?').run(`A conversão falhou: ${e instanceof Error ? e.message : String(e)}`.slice(0, 400), id)
+        }
+        this.progressoOtimizar.delete(id)
+        this.emit('mudou')
+      }
+    } finally {
+      this.otimizandoAgora = false
+    }
+  }
+
+  /**
+   * Converte o vídeo pesado para H.264 1080p (até 30 qps) num arquivo novo e, quando ele não está no ar, troca o
+   * arquivo da mídia (o id fica: a liturgia e o site continuam apontando para ela). Enquanto isso, o original toca.
+   */
+  private async otimizar(id: number): Promise<void> {
+    const l = this.db.prepare('select * from midias where id = ?').get(id) as unknown as Linha | undefined
+    if (!l || l.excluido_em || l.tipo !== 'video' || !l.pesado || l.situacao !== 'pronto') return
+    const ffmpeg = this.ffmpegAtual()
+    const precisaNovo = l.codec === 'av1' && (!ffmpeg || ehFfmpegAntigo(ffmpeg))
+    if (!ffmpeg || precisaNovo) {
+      this.db
+        .prepare('update midias set detalhe = ? where id = ?')
+        .run('Pode travar neste computador. Para converter, baixe o conversor novo em Configurações → Vídeos e som.', id)
+      return
+    }
+    const ext = extname(l.arquivo)
+    const pasta = dirname(l.arquivo)
+    const base = basename(l.arquivo, ext).replace(/ \(H\.264\)$/, '')
+    const parcial = join(pasta, `${base} (H.264).parcial.mp4`)
+    rmSync(parcial, { force: true })
+    this.db.prepare('update midias set detalhe = ? where id = ?').run('Convertendo para H.264 1080p (o original toca enquanto isso).', id)
+    this.progressoOtimizar.set(id, 0)
+    this.emit('mudou')
+    const inicio = Date.now()
+    let ultimoAviso = 0
+    await converter(ffmpeg, l.arquivo, parcial, 'video', l.duracao, (p) => {
+      this.progressoOtimizar.set(id, p)
+      if (Date.now() - ultimoAviso > 1000) {
+        ultimoAviso = Date.now()
+        this.emit('mudou')
+      }
+    }, { qps: l.qps })
+    // a troca nunca acontece com o vídeo no ar: espera ele sair
+    for (;;) {
+      const atual = this.db.prepare('select arquivo, excluido_em from midias where id = ?').get(id) as { arquivo: string; excluido_em: string | null } | undefined
+      // trocado (série nova do site) ou apagado enquanto convertia: o convertido não serve mais
+      if (!atual || atual.arquivo !== l.arquivo) {
+        rmSync(parcial, { force: true })
+        return
+      }
+      if (!this.emUso(l.arquivo)) break
+      this.db.prepare('update midias set detalhe = ? where id = ?').run('Convertido: troca quando o vídeo sair do ar.', id)
+      this.emit('mudou')
+      await new Promise((r) => setTimeout(r, 15_000))
+    }
+    const destino = nomeLivre(pasta, `${base} (H.264).mp4`)
+    await moverArquivo(parcial, destino)
+    const hash = await sha256(destino)
+    const outra = this.db.prepare('select id from midias where sha256 = ? and excluido_em is null and id <> ?').get(hash, id)
+    this.db
+      .prepare(
+        `update midias set arquivo = ?, bytes = ?, sha256 = ?, codec = null, qps = null, pesado = null, situacao = 'analisando', detalhe = null where id = ?`,
+      )
+      .run(destino, statSync(destino).size, outra ? null : hash, id)
+    rmSync(l.arquivo, { force: true })
+    log.info(`Mídia ${id}: vídeo pesado (${l.pesado}) convertido para H.264 em ${Math.round((Date.now() - inicio) / 1000)} s: ${basename(destino)}`)
+    this.enfileirar(id)
   }
 }

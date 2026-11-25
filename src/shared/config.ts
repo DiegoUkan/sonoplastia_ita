@@ -62,7 +62,12 @@ export const EsquemaSaida = z.object({
   corFundo: z.string().default('#000000').meta({ title: 'Cor de fundo', 'x-ui': 'cor' }),
   mostrarVideo: z.boolean().default(true).meta({
     title: 'Mostrar vídeos nesta saída',
-    description: 'Desligado, mostra só o nome do vídeo e o tempo que falta, sem pesar o computador. Bom para o Palco.',
+    description:
+      'Ligado, o vídeo toca aqui também (sem som: o som sai de uma saída só). Desligado, mostra só o nome do vídeo e o tempo que falta: use se o computador não der conta de dois vídeos.',
+  }),
+  videoMostrarTempo: z.boolean().default(false).meta({
+    title: 'Vídeos: mostrar o tempo que falta por cima',
+    description: 'Um selo pequeno no canto do vídeo (ex.: ▶ −3:25). Bom para o Palco.',
   }),
   musicaComFundo: z.boolean().default(true).meta({ title: 'Músicas: mostrar a imagem de fundo' }),
   textoComFundo: z.boolean().default(true).meta({
@@ -77,6 +82,12 @@ export const EsquemaSaida = z.object({
   textoTamanhoMax: z.number().min(4).max(20).default(11).meta({
     title: 'Tamanho máximo do texto (% da altura)',
     description: 'O texto diminui sozinho quando não cabe.',
+    'x-ui': 'deslizante',
+    'x-passo': 0.5,
+  }),
+  referenciaTamanho: z.number().min(3).max(14).default(7).meta({
+    title: 'Tamanho da referência bíblica (% da altura)',
+    description: 'A referência embaixo do versículo (ex.: Lucas 18:10). Antes era 4,4.',
     'x-ui': 'deslizante',
     'x-passo': 0.5,
   }),
@@ -119,11 +130,13 @@ export const EsquemaSaida = z.object({
 export type ConfigSaida = z.infer<typeof EsquemaSaida>
 
 /**
- * O Palco vem diferente do Público: sem vídeo, sem fundo nas músicas, com o próximo trecho, o próximo
- * slide, o aviso de último slide e o relógio no canto.
+ * O Palco vem diferente do Público: sem fundo nas músicas, com o próximo trecho, o próximo slide, o aviso
+ * de último slide, o relógio no canto e o tempo que falta por cima do vídeo. O vídeo toca nos dois
+ * (pedido de 21/11; antes o Palco só mostrava o nome e o tempo).
  */
 export const PADROES_PALCO = {
-  mostrarVideo: false,
+  mostrarVideo: true,
+  videoMostrarTempo: true,
   musicaComFundo: false,
   textoComFundo: false,
   musicaMostrarProximo: true,
@@ -226,6 +239,39 @@ export const EsquemaMusicas = z.object({
   }),
 })
 export type ConfigMusicas = z.infer<typeof EsquemaMusicas>
+
+/** Vídeos e som (pedidos de 21/11): fim do vídeo, Esc, vídeos pesados e o lembrete do canal do PC na mesa. */
+export const EsquemaVideos = z.object({
+  aoTerminar: z.enum(['sair', 'logo', 'congelar']).default('sair').meta({
+    title: 'Quando um vídeo termina',
+    description: 'Vale para os vídeos avulsos (os de dentro de um slide ficam no slide, como no PowerPoint).',
+    'x-opcoes': {
+      sair: 'Sai do ar: volta o que estava esperando (relógio, cronômetro, mensagem em tela cheia) ou o fundo',
+      logo: 'Sai do ar e mostra a tela de espera (Logo)',
+      congelar: 'Fica parado no último quadro (como era antes)',
+    },
+  }),
+  limparPausa: z.boolean().default(true).meta({
+    title: 'Limpar (Esc) e Logo pausam o vídeo',
+    description: 'Ao voltar para a tela normal, o vídeo continua de onde parou. Desligado, o vídeo continua tocando, com som, escondido. O Preto nunca pausa.',
+  }),
+  converterPesados: z.boolean().default(true).meta({
+    title: 'Converter sozinho os vídeos pesados para este computador',
+    description:
+      'Vídeo em AV1, HEVC ou VP9, maior que 1080p ou 1080p com mais de 30 quadros por segundo pode travar aqui. O programa converte para H.264 1080p em segundo plano (prioridade baixa) e troca o arquivo quando termina, sem tirar nada do ar.',
+  }),
+  lembreteCanal: z.boolean().default(true).meta({
+    title: 'Lembrete: abrir o canal do PC na mesa de som',
+    description: 'Quando um vídeo, música ou áudio começa a tocar, a tela de comando (e o celular) mostra um aviso grande para abrir o canal do computador na mesa.',
+  }),
+  lembreteIntervaloMin: z.number().int().min(0).max(120).default(0).meta({
+    title: 'Depois de "Já abri", não lembrar de novo por (minutos)',
+    description: '0 = lembra toda vez que algo com som começa a tocar.',
+    'x-ui': 'deslizante',
+    'x-passo': 5,
+  }),
+})
+export type ConfigVideos = z.infer<typeof EsquemaVideos>
 
 export const EsquemaBiblia = z.object({
   versaoPadrao: z.string().default('').meta({ title: 'Versão padrão', 'x-ui': 'versao-biblia' }),
@@ -528,12 +574,16 @@ export function saidasPadrao(): ConfigSaida[] {
   ]
 }
 
+/** Versão do config.json; `migrarConfig` leva um arquivo mais velho até ela. */
+export const VERSAO_CONFIG = 2
+
 export const EsquemaConfig = z.object({
-  versao: z.literal(1).default(1),
+  versao: z.number().int().min(1).default(VERSAO_CONFIG),
   geral: EsquemaGeral.prefault({}),
   telaEspera: EsquemaTelaEspera.prefault({}),
   fundos: EsquemaFundos.prefault({}),
   musicas: EsquemaMusicas.prefault({}),
+  videos: EsquemaVideos.prefault({}),
   biblia: EsquemaBiblia.prefault({}),
   apresentacoes: EsquemaApresentacoes.prefault({}),
   remoto: EsquemaRemoto.prefault({}),
@@ -558,6 +608,26 @@ export function configPadrao(): Config {
  * Antes de validar um config.json antigo: opções novas da saída Palco ganham os padrões do Palco
  * (e não os do Público).
  */
+/**
+ * Leva um config.json antigo até a versão atual (antes de `completarPadroesDoPalco` e da validação). Cada passo
+ * roda uma vez só: depois o arquivo é gravado com a versão nova, e o que o operador mudar fica.
+ *  1 → 2 (21/11): o vídeo passa a tocar também no Palco, com o tempo que falta por cima.
+ */
+export function migrarConfig(bruto: unknown): unknown {
+  const c = bruto as { versao?: unknown; saidas?: Array<Record<string, unknown>> }
+  if (!c || typeof c !== 'object') return bruto
+  const versao = typeof c.versao === 'number' ? c.versao : 1
+  if (versao < 2 && Array.isArray(c.saidas)) {
+    for (const s of c.saidas) {
+      if (s?.id !== 'palco') continue
+      s.mostrarVideo = true
+      s.videoMostrarTempo = true
+    }
+  }
+  if (versao < VERSAO_CONFIG) c.versao = VERSAO_CONFIG
+  return bruto
+}
+
 export function completarPadroesDoPalco(bruto: unknown): unknown {
   const c = bruto as { saidas?: Array<Record<string, unknown>> }
   if (!c || !Array.isArray(c.saidas)) return bruto

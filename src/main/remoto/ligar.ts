@@ -37,6 +37,7 @@ export function configPublica(c: Config): ConfigPublica {
     saidas: c.saidas.map((s) => ({ id: s.id, nome: s.nome, ativa: s.ativa })),
     biblia: c.biblia,
     telaEspera: { texto: c.telaEspera.texto },
+    lembreteCanal: { ligado: c.videos.lembreteCanal, intervaloMin: c.videos.lembreteIntervaloMin },
   }
 }
 

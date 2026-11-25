@@ -31,6 +31,7 @@ import { useEstadoSite } from './PainelSite'
 import { PaginaMusicas } from './PaginaMusicas'
 import { PaginaTelas } from './PaginaTelas'
 import { PaginaTeste } from './PaginaTeste'
+import { AvisoCanal, useLembreteCanal } from '../compartilhado/LembreteCanal'
 import { fontesDoPlayer } from './Player'
 import { Segmentado } from './ui'
 
@@ -154,6 +155,9 @@ export function App() {
     if (nova) setFonteId(nova)
   }, [idsFontes])
 
+  // vídeo, música ou áudio começou: lembrar de abrir o canal do PC na mesa de som
+  const lembrete = useLembreteCanal(estado, !!config?.videos.lembreteCanal, config?.videos.lembreteIntervaloMin ?? 0)
+
   if (!estado || !config || !telas || !pagina) {
     return <div className="flex h-full items-center justify-center text-suave">Carregando…</div>
   }
@@ -167,6 +171,7 @@ export function App() {
       className="relative grid h-full grid-rows-[minmax(0,1fr)_28px]"
       style={{ gridTemplateColumns: `200px minmax(0,1fr) ${recolhido ? '80px' : '344px'}` }}
     >
+      {lembrete.aviso && <AvisoCanal aviso={lembrete.aviso} aoFechar={lembrete.fechar} />}
       <nav className="flex flex-col gap-0.5 border-r border-borda bg-painel p-3">
         <div className="mb-4 px-2 pt-1">
           <div className="text-[15px] font-bold tracking-tight">Sonoplastia</div>
@@ -313,6 +318,7 @@ const NOMES_TAREFA: Record<Progresso['tarefa'], string> = {
   apresentacoes: 'Convertendo apresentação',
   site: 'Baixando do site:',
   whisper: 'Baixando',
+  ffmpeg: 'Baixando o conversor de vídeo:',
 }
 
 function BarraStatus({ config, telas, progresso }: { config: Config; telas: EstadoTelas; progresso: Progresso | null }) {

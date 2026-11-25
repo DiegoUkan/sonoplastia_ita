@@ -295,6 +295,36 @@ saída).
   (passo 14). Achado: o vídeo do site "21⧸11. O paralítico no tanque de Betesda" (mídia 12) é **AV1 2560×1440**, que
   nenhuma placa deste PC decodifica (o i3 faz no processador); o download estava completo (tamanho do manifesto e
   duração inteira). O ffmpeg do Holyrics nem lê AV1.
+- **2026-11-25 (quarta à noite, no PC da igreja): o plano de 21/11 implementado inteiro + lembrete da mesa** (pedido do
+  usuário: "aplique… não pergunte nada"). O programa estava aberto (abriu às 19h43, ocioso): `out\` **não** foi
+  recompilado; tudo rodou com prioridade baixa. Testado com Vitest (288; ~30 novos em `tests/videos.test.ts`, config e
+  ferramentas; 1 falha que **já existia** no código de antes neste PC: `transcricao.test.ts` "erro de chave é fatal",
+  ElevenLabs de mentira, estoura 5 s com o Node 22.16 daqui; conferido rodando o código antigo numa pasta à parte),
+  typecheck, build em `out-teste` e autoteste leve (passos `video`, `ajustes` novo, `biblia`, `ferramentas`; PNGs
+  `2b`–`2e`). **Ainda não visto nos projetores.** Feito (detalhes em [`AJUSTES-2026-11-21.md`](AJUSTES-2026-11-21.md)):
+  - **A. Referência bíblica maior:** opção por saída `referenciaTamanho` (padrão 7% da altura; antes 4,4 fixo), branca.
+  - **B. Vídeo também no Palco:** `PADROES_PALCO.mostrarVideo = true` + `videoMostrarTempo` (selo "▶ −3:25" por cima
+    do vídeo). `config.json` passou a ter `versao: 2`; `migrarConfig` liga o vídeo no Palco uma vez (este PC tinha
+    `false` gravado). A saída que não tem o som acompanha a primeira (`useSincronia` + `passoDeSincronia`: até 10%
+    mais rápida/lenta; > 1 s pula). No autoteste (janelas ocultas, timers do Chromium lentos) ficou 1 s atrás aos 5 s:
+    **conferir em janela visível**.
+  - **C. Fim do vídeo e Esc:** a saída manda `video:terminou` (fora do controle remoto); Configurações → **Vídeos e
+    som** → "Quando um vídeo termina": sair do ar (padrão) / Logo / último quadro. A liturgia com "passar sozinho" age
+    antes do motor (sem tela vazia no meio). **Limpar e Logo pausam o vídeo** e a volta continua (`pausadoPelaTela`); o
+    Preto não pausa.
+  - **D. Ferramentas de tela cheia esperam e voltam** (`EstadoFerramentas.emEspera`, regra em `modosNaSaida`, agora em
+    `src/shared/ferramentas.ts`): com conteúdo no ar o temporizador fica no canto e QR/mensagem somem; sem conteúdo
+    (fim do vídeo, Parar, Esc, música/apresentação fechada) voltam. O sorteio sai de vez. Página Ferramentas mostra
+    "Esperando a mídia sair · pôr agora".
+  - **E. Vídeo pesado:** leitor próprio do formato (`src/main/biblioteca/formato.ts`: caixas do MP4, CodecID do
+    WebM/MKV; conferido nos 11 vídeos daqui), regra `motivoPesado` (não H.264, > 1080p, 1080p > 30 qps), migração 5 do
+    banco (`codec`, `qps`, `pesado`), selo "Pesado" em Mídias e conversão para H.264 1080p em segundo plano, trocando
+    o arquivo (mesmo id) só com o vídeo fora do ar. **Conversor novo:** Configurações → Vídeos e som → "Baixar o
+    conversor novo" (ffmpeg 9.0.2 essentials do gyan.dev, 115 MB, SHA-256 fixado; o ZIP foi conferido sem baixar
+    inteiro). **Nem o download nem a conversão do vídeo AV1 foram feitos** (era noite de culto). Log novo
+    (`src/main/registroVideo.ts`): começo com o formato, cada parada (onde e quanto) e o resumo (quadros perdidos).
+  - **F. Lembrete do canal do PC na mesa de som** (pedido novo de 21/11): aviso amarelo grande na tela de comando e no
+    celular quando vídeo, música ou áudio começa a tocar com som ("Já abri" / some em 20 s). Opções em Vídeos e som.
 
 ## Decisões
 
@@ -304,8 +334,10 @@ saída).
   com regra por saída (`PLANO.md` §4.3).
 - O motor (processo principal) é a única fonte da verdade; as janelas de saída só desenham o estado.
   Músicas e áudios tocam numa janela de áudio oculta.
-- **Nunca decodificar o mesmo vídeo duas vezes** (PC fraco): o Palco mostra "vídeo tocando + tempo
-  restante" e as miniaturas usam quadros capturados.
+- ~~Nunca decodificar o mesmo vídeo duas vezes~~ **mudado em 25/11 a pedido do usuário** ("os vídeos só tocam no
+  Público"): o vídeo toca em todas as saídas do "Enviar para"; só a primeira solta o som e as outras acompanham a
+  posição dela. Se o PC não der conta, desligar "Mostrar vídeos nesta saída" no Palco (volta o nome + tempo). As
+  miniaturas continuam usando quadros capturados.
 - PPTX: exportar slides como imagem pelo **PowerPoint (COM)** na importação; modo PowerPoint nativo
   opcional para animações (ainda não feito). **PDF pelo leitor de PDF do Windows** (`Windows.Data.Pdf`
   num script PowerShell), também na importação, no lugar do pdf.js (decidido em 2026-11-14: sem
@@ -343,8 +375,26 @@ saída).
   mudança de valor (ex.: tocar de novo um vídeo que terminou).
 - Mostrar outra coisa numa saída que estava com a letra da música: a música continua (áudio e as
   outras saídas), mas para de atualizar aquela saída.
-- Palco por padrão: sem vídeo (só nome e tempo), música sem fundo e com o próximo trecho (branco, como o
-  atual), aviso de último slide. Configs antigas ganham esses padrões no Palco (`completarPadroesDoPalco`).
+- Palco por padrão: vídeo tocando com o tempo que falta por cima (desde 25/11), música sem fundo e com o próximo
+  trecho (branco, como o atual), aviso de último slide. Configs antigas ganham esses padrões no Palco
+  (`completarPadroesDoPalco`). Mudança de padrão que precisa valer para quem já tinha o valor gravado = um passo novo
+  em `migrarConfig` (e `VERSAO_CONFIG` + 1), nunca mexer no `config.json` com o programa aberto.
+- **Fim do vídeo** (25/11): a saída que toca manda `video:terminou` (como o `audio:terminou`); o motor tira o vídeo do
+  ar em todas as saídas com ele (`videos.aoTerminar`: sair / logo / congelar). No processo principal a liturgia recebe
+  o aviso **antes** do motor (o "passar sozinho" troca o item sem tela vazia no meio).
+- **Limpar e Logo pausam o vídeo; o Preto não** (25/11; o Preto é "só o som"). A volta para a tela normal continua só o
+  que foi pausado pela tela (`ControleMidia.pausadoPelaTela`); mexer no player esquece a marca.
+- **Ferramenta em tela cheia nunca é desligada por conteúdo novo** (25/11): fica em `emEspera` e o desenho decide
+  (`modosNaSaida`): com conteúdo visível, temporizador no canto e QR/mensagem escondidos; sem conteúdo, tela cheia.
+  O sorteio é a exceção (sai de vez). Escolher "Tela cheia" de novo põe por cima do que estiver no ar.
+- **Vídeo pesado** (25/11) = não H.264, mais pixels que 1080p, ou mais que 720p acima de 30 qps (`motivoPesado`). O
+  programa lê o formato direto do arquivo (o ffmpeg do Holyrics não lê AV1) e converte para H.264 que caiba em
+  1920×1080, até 30 qps, com prioridade baixa; o arquivo só é trocado fora do ar. AV1 precisa do conversor novo
+  (`FFMPEG_NOVO`, versão e SHA-256 fixos, como o Whisper). Ordem de procura do ffmpeg: `resources\`, `C:\Sonoplastia\ffmpeg`,
+  Holyrics.
+- **Lembrete do canal do PC na mesa** (25/11): o programa não sabe o estado da mesa; lembra a cada mídia nova com som
+  (vídeo da saída sem mudo, música, áudio), uma vez por mídia (pausar e tocar não lembra de novo). Regras puras em
+  `src/shared/lembrete.ts`; o aviso nunca pega o foco do teclado.
 - Fundo atrás de texto: pouco escurecido (`fundoEscurecer`, 10%) + sombra forte no texto (pedido do
   usuário: "imagem mais clara, sombra atrás do texto").
 - Controles deslizantes e listas largam o foco depois de usados (o passador de slides manda setas).
@@ -549,8 +599,15 @@ Cuidados descobertos:
 - O Electron 45 **não baixa o binário no `npm install`**. Rodar `node install.js` dentro de
   `node_modules\electron` (o `abrir.cmd` já faz isso).
 - O ffmpeg usado (vídeo de teste e conversões) é o do Holyrics (`C:\Holyrics\Holyrics\files\ffmpeg.exe`),
-  de **2014**: não tem `testsrc2`, o `aac` precisa de `-strict -2`; tem `libx264` e `libmp3lame`. Um
-  `resources\ffmpeg.exe` tem prioridade, se for colocado lá.
+  de **2014**: não tem `testsrc2`, o `aac` precisa de `-strict -2`; tem `libx264` e `libmp3lame`; **não lê AV1**. Um
+  `resources\ffmpeg.exe` ou o conversor novo baixado pelo programa (`C:\Sonoplastia\ffmpeg\ffmpeg.exe`) têm
+  prioridade. Os argumentos de conversão (`argumentosConversao`) foram conferidos no de 2014 em 25/11.
+- **`npx` trava no shell do Claude neste PC** (25/11: nem chega a rodar). Chamar direto pelo node:
+  `node node_modules\vitest\vitest.mjs run`, `node node_modules\electron-vite\bin\electron-vite.js build --outDir …`;
+  `npm run typecheck` funciona. Com o programa aberto, rodar com prioridade baixa (`cmd /c "start /low /b /wait …"`,
+  os filhos herdam) e, para caminhos com espaço, por um `.cmd` (as aspas se perdem entre o bash e o cmd).
+- Teste que já falha neste PC (Node 22.16), antes de 25/11: `transcricao.test.ts` "erro de chave é fatal; recusa na
+  abertura fecha sem abrir" (estoura os 5 s). No PC de desenvolvimento (Node 26) passava.
 - Electron rodando como Node (`ELECTRON_RUN_AS_NODE=1`) só mostra a saída se ela for redirecionada
   (`Start-Process -RedirectStandardOutput`).
 - `SONOPLASTIA_DADOS` troca a pasta de dados (padrão `C:\Sonoplastia`).
@@ -663,20 +720,27 @@ Claude falhar, rodar por um `.cmd` com clique duplo (ou `explorer.exe "<arquivo>
     certa). O turbo é o bom, mas só em PC forte (neste PC de desenvolvimento: turbo com 8 núcleos). Para o 2º passo (passo 12), o Whisper não manda texto
     parcial: seguir a leitura com ele teria ~2,5 s de atraso no i3 (pensar em frases mais curtas ou no
     `whisper-stream`, ou usar o ElevenLabs só para isso).
-14. **Ajustes de 21/11: executar o [`AJUSTES-2026-11-21.md`](AJUSTES-2026-11-21.md)** (no PC de desenvolvimento, parte
-    por parte, um commit cada): A referência bíblica maior; B vídeo também no Palco (com sincronia e selo do tempo);
-    C fim do vídeo e Esc (`video:terminou`, "sair do ar" por padrão, Limpar pausa o vídeo); D ferramentas de tela
-    cheia esperam e voltam depois da mídia; E vídeo pesado (ler o codec, converter AV1/1440p com um ffmpeg novo, log
-    de travadas). As "Decisões deste plano" no topo do arquivo ainda podem mudar com o usuário. Até lá, no PC da
-    igreja: Telas → Palco → ligar "Mostrar vídeos nesta saída" e não usar vídeo AV1 (pedir H.264 até 1080p).
+14. ~~Ajustes de 21/11~~ **código pronto em 25/11** (ver Status). **Conferir no PC da igreja, fora do culto**, depois
+    de fechar o programa e abrir pelo `abrir.cmd` (que recompila):
+    - Bíblia → Lucas 18:10: referência maior no Público e no Palco (ajustar em Telas → "Tamanho da referência").
+    - Teste → "Vídeo de teste 1080p" em Todas: toca nas duas, som uma vez só, selo do tempo no Palco, **Público e
+      Palco juntos** (a sincronia só foi vista em janela oculta) e quadros perdidos baixos nas duas. Se o PC não der
+      conta, desligar "Mostrar vídeos nesta saída" no Palco e anotar aqui.
+    - Ferramentas → temporizador em tela cheia → Mídias → vídeo curto: no fim, o temporizador volta em tela cheia;
+      Esc no meio pausa o vídeo e mostra o temporizador; Esc de novo continua o vídeo.
+    - Lembrete da mesa: aparece ao tocar vídeo/música (também no celular); "Já abri" fecha.
+    - Configurações → Vídeos e som → **"Baixar o conversor novo" (115 MB)**; depois, em Mídias, o vídeo do Betesda
+      (mídia 12, AV1 1440p) deve aparecer "Convertendo…" e virar H.264 (medir quanto tempo leva no i3; anotar aqui).
+      Conferir no log as linhas "Vídeo … no publico: …" e "convertido para H.264".
 
 ## Pendências conhecidas
 
-- "Limpar" esconde o conteúdo, mas um vídeo continua tocando (com som) por baixo. Falta a opção
-  "ao limpar: pausar o vídeo" e o "ao terminar" do vídeo (preto / logo / congelar / próximo). Planejado no
-  `AJUSTES-2026-11-21.md`, parte C.
-- Vídeo AV1/HEVC/VP9 ou acima de 1080p entra na biblioteca como "pronto" (a sonda só confere se toca) e pode travar
-  neste PC. Planejado no `AJUSTES-2026-11-21.md`, parte E.
+- Vídeos (25/11): "quando termina" não tem "voltar ao conteúdo de antes" (ex.: o slide do sermão depois de um vídeo);
+  o "passar sozinho" é só da liturgia. Sincronia Público/Palco não conferida em janela visível. Vídeos de slides não
+  passam pela regra de "pesado" (só os da biblioteca de Mídias). Apresentações ainda usam o ffmpeg que estava ao abrir
+  o programa (o conversor novo vale para elas depois de reabrir).
+- Lembrete da mesa: não sabe se o canal está aberto (lembra sempre que algo com som começa, a não ser que "Já abri"
+  tenha pedido um intervalo).
 - Biblioteca: ainda sem coleções/etiquetas; arrastar para a lixeira não existe (só o botão).
 - Bíblia: não há catálogo fixo para baixar versões (só arquivo ou endereço colado), porque não há uma
   fonte confirmada; ver com o usuário.

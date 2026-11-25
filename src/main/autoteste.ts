@@ -170,6 +170,46 @@ export async function rodarAutoteste(ctx: Contexto): Promise<void> {
     fazer({ tipo: 'midia', alvo: 'todas', acao: 'parar' })
   })
 
+  // pedidos de 21/11: vídeo também no Palco (junto com o Público), ferramenta em tela cheia que espera o vídeo e
+  // volta no fim, Esc pausando o vídeo e o lembrete do canal do PC na mesa
+  await passo('ajustes', async () => {
+    const url = ctx.liberar(await ctx.videoDeTeste())
+    const r: Record<string, unknown> = {}
+    relatorio.ajustes = r
+    const pos = (id: string) => ctx.telemetrias.get(id)?.video ?? null
+    fazer({ tipo: 'mostrar', alvo: 'todas', conteudo: { tipo: 'video', url, nome: 'Vídeo de teste', loop: false } })
+    await esperar(1500)
+    r.lembrete = await noComando(`document.querySelector('[role="alert"]')?.textContent ?? null`)
+    await capturar('2b-lembrete-canal', 'comando')
+    await esperar(3500)
+    const p = pos('publico')
+    const q = pos('palco')
+    r.palcoToca = { publico: p, palco: q, diferencaS: p && q ? Math.abs(p.posicao - q.posicao) : null }
+    await capturar('2c-video-nas-duas')
+    // Esc: pausa; voltar: continua
+    fazer({ tipo: 'tela', alvo: 'todas', tela: 'limpar' })
+    await esperar(1200)
+    r.limpar = { motor: ctx.motor.estado.saidas.publico?.video.tocando, janela: pos('publico')?.tocando }
+    fazer({ tipo: 'tela', alvo: 'todas', tela: 'normal' })
+    await esperar(1200)
+    r.voltou = { motor: ctx.motor.estado.saidas.publico?.video.tocando, janela: pos('publico')?.tocando }
+    // temporizador em tela cheia: espera o vídeo (no canto) e volta quando ele termina
+    fazer({ tipo: 'temporizador:definir', modo: 'regressivo', minutos: 5, titulo: 'Teste' })
+    fazer({ tipo: 'temporizador:acao', acao: 'iniciar' })
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'temporizador', alvo: 'todas', modo: 'tela' })
+    fazer({ tipo: 'mostrar', alvo: 'todas', conteudo: { tipo: 'video', url, nome: 'Vídeo de teste', loop: false } })
+    await esperar(2500)
+    r.esperando = ctx.motor.estado.ferramentas.emEspera?.temporizador
+    await capturar('2d-temporizador-esperando')
+    const dur = pos('publico')?.duracao || 60
+    fazer({ tipo: 'buscar', alvo: 'todas', segundos: dur - 1.5 })
+    await esperar(4500)
+    r.depoisDoFim = { publico: ctx.motor.estado.saidas.publico?.conteudo.tipo, palco: ctx.motor.estado.saidas.palco?.conteudo.tipo }
+    await capturar('2e-temporizador-voltou')
+    fazer({ tipo: 'ferramenta:mostrar', ferramenta: 'temporizador', alvo: 'todas', modo: null })
+    fazer({ tipo: 'midia', alvo: 'todas', acao: 'parar' })
+  })
+
   await passo('biblia', async () => {
     const arq = process.env.SONOPLASTIA_AUTOTESTE_BIBLIA || join(homedir(), 'Documents', 'Projetos', 'Transcrição_tempo_real', 'data', 'biblia', 'ARA.json')
     if (!existsSync(arq)) {

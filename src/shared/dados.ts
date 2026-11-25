@@ -19,6 +19,12 @@ export interface Midia {
   detalhe: string | null
   /** 0 a 1 durante a conversão */
   progresso: number | null
+  /** vídeos: "AV1 2560×1440 30 qps" (null = ainda não lido ou não é vídeo) */
+  formato: string | null
+  /** vídeos: por que pesa para este computador (ex.: "AV1, 2560×1440"); null = não pesa */
+  pesado: string | null
+  /** 0 a 1 enquanto o vídeo pesado é convertido para H.264 1080p (ele continua tocando o original) */
+  otimizando: number | null
   criadoEm: string
   excluida: boolean
   /** veio do site da igreja (null = importada à mão) */
@@ -96,7 +102,7 @@ export interface ArquivoBibliaEncontrado {
 
 /** Andamento de uma tarefa longa (importação, conversão). */
 export interface Progresso {
-  tarefa: 'louvorja' | 'biblia' | 'midias' | 'apresentacoes' | 'site' | 'whisper'
+  tarefa: 'louvorja' | 'biblia' | 'midias' | 'apresentacoes' | 'site' | 'whisper' | 'ffmpeg'
   feito: number
   total: number
   texto?: string

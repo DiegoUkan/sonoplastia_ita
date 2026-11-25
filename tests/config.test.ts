@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { completarPadroesDoPalco, configPadrao, EsquemaConfig, EsquemaSaida } from '../src/shared/config'
+import { completarPadroesDoPalco, configPadrao, EsquemaConfig, EsquemaSaida, migrarConfig, VERSAO_CONFIG } from '../src/shared/config'
 
 describe('configurações', () => {
   it('o padrão tem as saídas Público e Palco, sem monitor', () => {
@@ -34,6 +34,31 @@ describe('configurações', () => {
     const lida = EsquemaConfig.parse(completarPadroesDoPalco(antiga))
     expect(lida.saidas.map((s) => s.slideAvisarFim)).toEqual([false, true])
     expect(() => EsquemaSaida.parse({ id: 'x', nome: 'X', fundoEscurecer: 90 })).toThrow()
+  })
+
+  it('pedidos de 21/11: vídeo também no Palco (com o tempo que falta), referência maior, fim do vídeo e lembrete da mesa', () => {
+    const c = configPadrao()
+    expect(c.versao).toBe(VERSAO_CONFIG)
+    expect(c.saidas.map((s) => [s.id, s.mostrarVideo, s.videoMostrarTempo, s.referenciaTamanho])).toEqual([
+      ['publico', true, false, 7],
+      ['palco', true, true, 7],
+    ])
+    expect(c.videos).toEqual({ aoTerminar: 'sair', limparPausa: true, converterPesados: true, lembreteCanal: true, lembreteIntervaloMin: 0 })
+  })
+
+  it('migração 1 → 2: o Palco antigo sem vídeo passa a tocar o vídeo, uma vez só', () => {
+    const antiga = { versao: 1, saidas: [{ id: 'publico', nome: 'Público', mostrarVideo: true }, { id: 'palco', nome: 'Palco', mostrarVideo: false }] }
+    const lida = EsquemaConfig.parse(completarPadroesDoPalco(migrarConfig(antiga)))
+    expect(lida.versao).toBe(2)
+    expect(lida.saidas.map((s) => [s.mostrarVideo, s.videoMostrarTempo])).toEqual([
+      [true, false],
+      [true, true],
+    ])
+    // sem a versão (arquivo bem antigo) conta como 1
+    expect(EsquemaConfig.parse(migrarConfig({ saidas: [{ id: 'palco', nome: 'Palco', mostrarVideo: false }] })).saidas[0]!.mostrarVideo).toBe(true)
+    // já na versão 2: o que o operador escolheu fica
+    const nova = { versao: 2, saidas: [{ id: 'palco', nome: 'Palco', mostrarVideo: false }] }
+    expect(EsquemaConfig.parse(migrarConfig(nova)).saidas[0]!.mostrarVideo).toBe(false)
   })
 
   it('o esquema gera o JSON Schema com os textos da tela de configurações', () => {

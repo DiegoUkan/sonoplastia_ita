@@ -9,6 +9,7 @@ import type { Ajuste, ConfigFerramentas, ConfigSaida, ConfigTelaEspera } from '.
 import type { Conteudo, ControleMidia, EstadoFerramentas, EstadoSaida, Fundo, ModoTela, TelemetriaVideo } from '../../shared/estado'
 import type { FaixaVertical } from '../../shared/ferramentas'
 import { urlMidia } from '../../shared/midia'
+import { passoDeSincronia } from '../../shared/video'
 import { CamadaFerramentasCanto, CamadaFerramentasTela } from './Ferramentas'
 import { TextoAjustado } from './TextoAjustado'
 
@@ -35,6 +36,13 @@ export interface PropsCamadas {
   /** relógio, temporizador, QR, mensagem e sorteio (sem isso, só o relógio da configuração) */
   ferramentas?: EstadoFerramentas
   cfgFerramentas?: ConfigFerramentas
+  /**
+   * Telemetria da saída que é a referência do mesmo vídeo (a primeira que toca, a do som): esta saída
+   * acompanha a posição dela (acelera, freia ou pula), para Público e Palco andarem juntos.
+   */
+  sincronizarCom?: TelemetriaVideo | null
+  /** o vídeo avulso chegou ao fim (só a janela de saída de verdade passa; a miniatura não toca vídeo) */
+  aoTerminarVideo?: (url: string) => void
 }
 
 const COBRE_CONTEUDO: ModoTela[] = ['logo', 'preto']
@@ -97,6 +105,8 @@ export function Camadas(p: PropsCamadas) {
               aoTelemetriaVideo={p.aoTelemetriaVideo}
               saidaAudio={p.saidaAudio}
               aoMedirTexto={aoMedirTexto}
+              sincronizarCom={p.sincronizarCom}
+              aoTerminarVideo={p.aoTerminarVideo}
             />
           )}
         </ConteudoComTransicao>
@@ -207,6 +217,8 @@ interface PropsConteudo {
   saidaAudio?: string
   /** onde o texto principal (letra, versículo, texto) ficou na tela; só o conteúdo que está entrando avisa */
   aoMedirTexto?: (f: FaixaVertical) => void
+  sincronizarCom?: TelemetriaVideo | null
+  aoTerminarVideo?: (url: string) => void
 }
 
 /**
@@ -238,7 +250,7 @@ function CamadaConteudo(p: PropsConteudo) {
               {c.texto}
             </TextoAjustado>
           </div>
-          {c.referencia && <Referencia texto={c.referencia} sombra={cfg.textoSombra} />}
+          {c.referencia && <Referencia texto={c.referencia} sombra={cfg.textoSombra} tamanho={cfg.referenciaTamanho} />}
         </div>
       )
     case 'letra': {
@@ -310,7 +322,7 @@ function CamadaConteudo(p: PropsConteudo) {
               )}
             </TextoAjustado>
           </div>
-          <Referencia texto={c.segundo ? `${c.referencia} · ${c.segundo.referencia}` : c.referencia} sombra={cfg.textoSombra} />
+          <Referencia texto={c.segundo ? `${c.referencia} · ${c.segundo.referencia}` : c.referencia} sombra={cfg.textoSombra} tamanho={cfg.referenciaTamanho} />
         </div>
       )
     case 'slide':
@@ -327,6 +339,9 @@ function CamadaConteudo(p: PropsConteudo) {
           ativo={p.ativo}
           aoTelemetria={p.aoTelemetriaVideo}
           saidaAudio={p.saidaAudio}
+          sincronizarCom={p.sincronizarCom}
+          mostrarTempo={cfg.videoMostrarTempo}
+          aoTerminar={p.aoTerminarVideo}
         />
       )
   }
@@ -353,9 +368,17 @@ function ConteudoSlide(p: PropsConteudo & { c: ConteudoDeSlide }) {
   const atual = (
     <CaixaSlide url={c.url} proporcao={c.proporcao}>
       {tocaVideo && c.video && (
-        <VideoDoSlide video={c.video} controle={p.controle} ativo={p.ativo} aoTelemetria={p.aoTelemetriaVideo} saidaAudio={p.saidaAudio} />
+        <VideoDoSlide
+          video={c.video}
+          controle={p.controle}
+          ativo={p.ativo}
+          aoTelemetria={p.aoTelemetriaVideo}
+          saidaAudio={p.saidaAudio}
+          sincronizarCom={p.sincronizarCom}
+          mostrarTempo={cfg.videoMostrarTempo}
+        />
       )}
-      {c.video && !tocaVideo && <SeloVideoSlide telemetria={p.telemetriaVideo} />}
+      {c.video && !tocaVideo && <SeloTempo telemetria={p.telemetriaVideo} />}
     </CaixaSlide>
   )
   const notas = cfg.slideMostrarNotas ? c.notas.trim() : ''
@@ -441,27 +464,36 @@ function VideoDoSlide(p: {
   ativo: boolean
   aoTelemetria?: (v: TelemetriaVideo | null) => void
   saidaAudio?: string
+  sincronizarCom?: TelemetriaVideo | null
+  mostrarTempo?: boolean
 }) {
   const ref = useRef<HTMLVideoElement>(null)
   const [comecou, setComecou] = useState(false)
   useControleMidia(ref, p.controle, p.ativo, p.saidaAudio)
   useTelemetriaMidia(ref, p.ativo, p.aoTelemetria)
+  useSincronia(ref, p.sincronizarCom, p.ativo)
   const v = p.video
   return (
-    <video
-      ref={ref}
-      src={v.url}
-      autoPlay={p.controle.tocando}
-      playsInline
-      onPlaying={() => setComecou(true)}
-      className="absolute"
-      style={{ left: `${v.x * 100}%`, top: `${v.y * 100}%`, width: `${v.l * 100}%`, height: `${v.a * 100}%`, objectFit: 'fill', opacity: comecou ? 1 : 0 }}
-    />
+    <>
+      <video
+        ref={ref}
+        src={v.url}
+        autoPlay={p.controle.tocando}
+        playsInline
+        onPlaying={() => setComecou(true)}
+        className="absolute"
+        style={{ left: `${v.x * 100}%`, top: `${v.y * 100}%`, width: `${v.l * 100}%`, height: `${v.a * 100}%`, objectFit: 'fill', opacity: comecou ? 1 : 0 }}
+      />
+      {p.mostrarTempo && <SeloTempoDoVideo video={ref} />}
+    </>
   )
 }
 
-/** Onde o vídeo do slide não é decodificado (Palco, miniatura): selo com o tempo que falta. */
-function SeloVideoSlide({ telemetria }: { telemetria?: TelemetriaVideo | null }) {
+/**
+ * Selo com o tempo que falta do vídeo: onde o vídeo não é decodificado (Palco sem vídeo, miniatura) e, com
+ * "mostrar o tempo que falta", por cima do vídeo que toca.
+ */
+function SeloTempo({ telemetria }: { telemetria?: TelemetriaVideo | null }) {
   const falta = telemetria ? telemetria.duracao - telemetria.posicao : null
   return (
     <div
@@ -472,6 +504,44 @@ function SeloVideoSlide({ telemetria }: { telemetria?: TelemetriaVideo | null })
       {telemetria && falta !== null ? `${telemetria.tocando ? '▶' : '❚❚'} −${formatarTempo(falta)}` : 'vídeo'}
     </div>
   )
+}
+
+/** O selo do tempo que falta lendo o próprio elemento de vídeo (2 vezes por segundo). */
+function SeloTempoDoVideo({ video }: { video: RefObject<HTMLVideoElement | null> }) {
+  const [t, setT] = useState<TelemetriaVideo | null>(null)
+  useEffect(() => {
+    const id = setInterval(() => {
+      const m = video.current
+      if (!m || !Number.isFinite(m.duration) || m.duration <= 0) return
+      setT({ posicao: m.currentTime, duracao: m.duration, tocando: !m.paused && !m.ended, quadros: 0, perdidos: 0 })
+    }, 500)
+    return () => clearInterval(id)
+  }, [video])
+  return t ? <SeloTempo telemetria={t} /> : null
+}
+
+/**
+ * Acompanha a posição da saída de referência (a outra janela que toca o mesmo vídeo). Diferença pequena:
+ * acelera ou freia um pouco (sem som nesta saída, ninguém percebe); grande: pula para a posição dela. A
+ * telemetria traz a hora em que foi lida (`em`), então o atraso do envio entra na conta.
+ */
+export function useSincronia(ref: RefObject<HTMLMediaElement | null>, alvo: TelemetriaVideo | null | undefined, ativo: boolean) {
+  const ultimoPulo = useRef(0)
+  useEffect(() => {
+    const m = ref.current
+    if (!m) return
+    const agora = Date.now()
+    const p = alvo && ativo && alvo.em !== undefined ? passoDeSincronia(alvo.posicao + Math.max(0, agora - alvo.em) / 1000, m.currentTime, alvo.tocando && !m.paused, agora - ultimoPulo.current) : null
+    if (!p) {
+      if (m.playbackRate !== 1) m.playbackRate = 1
+      return
+    }
+    if (p.pular !== null) {
+      ultimoPulo.current = agora
+      m.currentTime = Number.isFinite(m.duration) ? Math.min(p.pular, Math.max(0, m.duration - 0.1)) : p.pular
+    }
+    if (m.playbackRate !== p.velocidade) m.playbackRate = p.velocidade
+  }, [ref, alvo, ativo])
 }
 
 /** vermelho do aviso de último slide (o mesmo do temporizador esgotado) */
@@ -501,9 +571,13 @@ function SeloUltimoSlide() {
   )
 }
 
-function Referencia({ texto, sombra }: { texto: string; sombra: boolean }) {
+/** Referência embaixo do versículo (ex.: Lucas 18:10); o tamanho é de cada saída (`referenciaTamanho`). */
+function Referencia({ texto, sombra, tamanho }: { texto: string; sombra: boolean; tamanho: number }) {
   return (
-    <div style={{ marginTop: '2.5cqh', textAlign: 'center', fontSize: '4.4cqh', fontWeight: 600, color: 'rgba(255,255,255,.88)', textShadow: sombraTexto(sombra) }}>
+    <div
+      className="shrink-0"
+      style={{ marginTop: '2.5cqh', textAlign: 'center', fontSize: `${tamanho}cqh`, lineHeight: 1.15, fontWeight: 700, color: '#fff', textShadow: sombraTexto(sombra) }}
+    >
       {texto}
     </div>
   )
@@ -559,6 +633,8 @@ export function useTelemetriaMidia(ref: RefObject<HTMLMediaElement | null>, ativ
         tocando: !m.paused && !m.ended,
         quadros: q?.totalVideoFrames ?? 0,
         perdidos: q?.droppedVideoFrames ?? 0,
+        em: Date.now(),
+        erro: m.error ? `erro ${m.error.code}${m.error.message ? `: ${m.error.message}` : ''}` : null,
       })
     }, 250)
     return () => clearInterval(id)
@@ -572,11 +648,30 @@ function VideoSaida(p: {
   ativo: boolean
   aoTelemetria?: (v: TelemetriaVideo | null) => void
   saidaAudio?: string
+  sincronizarCom?: TelemetriaVideo | null
+  mostrarTempo?: boolean
+  aoTerminar?: (url: string) => void
 }) {
   const ref = useRef<HTMLVideoElement>(null)
   useControleMidia(ref, p.controle, p.ativo, p.saidaAudio)
   useTelemetriaMidia(ref, p.ativo, p.aoTelemetria)
-  return <video ref={ref} src={p.url} autoPlay={p.controle.tocando} playsInline className="h-full w-full" style={{ objectFit: p.ajuste }} />
+  useSincronia(ref, p.sincronizarCom, p.ativo)
+  const { url, ativo, aoTerminar } = p
+  return (
+    <div className="relative h-full w-full">
+      <video
+        ref={ref}
+        src={url}
+        autoPlay={p.controle.tocando}
+        playsInline
+        // fim do vídeo (com "repetir" o navegador nem avisa): o motor decide o que fica na tela
+        onEnded={() => ativo && aoTerminar?.(url)}
+        className="h-full w-full"
+        style={{ objectFit: p.ajuste }}
+      />
+      {p.mostrarTempo && <SeloTempoDoVideo video={ref} />}
+    </div>
+  )
 }
 
 export function formatarTempo(s: number): string {

@@ -180,6 +180,15 @@ export function PaginaMidias({ alvo, site }: { alvo: string; site: EstadoSite | 
                         <TriangleAlert className="size-3" /> Outra semana
                       </span>
                     )}
+                    {m.pesado && !m.excluida && m.situacao === 'pronto' && (
+                      <span
+                        className="absolute bottom-1 left-1 flex max-w-[75%] items-center gap-1 truncate rounded bg-aviso px-1.5 text-[10px] font-semibold text-sobre-aviso"
+                        title={`Pesado para este computador (${m.pesado}): pode travar. ${m.detalhe ?? ''}`}
+                      >
+                        {m.otimizando !== null ? <LoaderCircle className="size-3 shrink-0 animate-spin" /> : <TriangleAlert className="size-3 shrink-0" />}
+                        <span className="truncate">{m.otimizando !== null ? `Convertendo ${Math.round(m.otimizando * 100)}%` : 'Pesado'}</span>
+                      </span>
+                    )}
                     {m.situacao === 'analisando' && <Faixa icone={LoaderCircle} texto="Analisando…" />}
                     {m.situacao === 'convertendo' && <Faixa icone={LoaderCircle} texto={`Convertendo ${m.progresso ? Math.round(m.progresso * 100) + '%' : '…'}`} />}
                     {m.situacao === 'erro' && <Faixa icone={TriangleAlert} texto="Erro" perigo />}
@@ -218,9 +227,14 @@ export function PaginaMidias({ alvo, site }: { alvo: string; site: EstadoSite | 
                           {m.nome}
                         </div>
                       )}
-                      <div className="truncate text-[11px] text-suave" title={m.detalhe ?? undefined}>
+                      <div className="truncate text-[11px] text-suave" title={[m.formato, m.detalhe].filter(Boolean).join('\n') || undefined}>
                         {m.situacao === 'erro' ? m.detalhe : `${m.largura && m.altura ? `${m.largura}×${m.altura} · ` : ''}${tamanho(m.bytes)}`}
                       </div>
+                      {m.pesado && !m.excluida && m.situacao === 'pronto' && (
+                        <div className="truncate text-[11px] font-medium text-aviso-texto" title={m.detalhe ?? undefined}>
+                          {m.pesado}: {m.detalhe ?? 'pode travar'}
+                        </div>
+                      )}
                       {m.site && (
                         <div
                           className={`flex items-center gap-1 truncate text-[11px] ${m.site.aviso && !m.site.atual ? 'text-aviso-texto' : 'text-apagado'}`}

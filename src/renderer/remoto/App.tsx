@@ -8,6 +8,7 @@ import { AUDIO, type Conteudo, type ControleMidia, type EstadoMotor, type ModoTe
 import type { ConfigPublica } from '../../shared/remoto'
 import { useAgora } from '../compartilhado/ganchos'
 import { Botao, Segmentado } from '../comando/ui'
+import { AvisoCanal, useLembreteCanal } from '../compartilhado/LembreteCanal'
 import { AbaBiblia, type PassadorBiblia } from './AbaBiblia'
 import { AbaMidias } from './AbaMidias'
 import { AbaMusicas } from './AbaMusicas'
@@ -121,10 +122,14 @@ function Painel({ aoPedirPin }: { aoPedirPin: () => void }) {
     if (config && alvo !== TODAS && !saidas.some((s) => s.id === alvo)) setAlvo(TODAS)
   }, [config, alvo, saidas])
 
+  // o sonoplasta pode estar só com o celular, perto da mesa: o lembrete do canal do PC aparece aqui também
+  const lembrete = useLembreteCanal(estado, !!config?.lembreteCanal?.ligado, config?.lembreteCanal?.intervaloMin ?? 0)
+
   if (!estado || !config) return <Centro>{conectado ? 'Carregando…' : 'Conectando ao computador…'}</Centro>
 
   return (
     <div className="flex h-dvh flex-col">
+      {lembrete.aviso && <AvisoCanal aviso={lembrete.aviso} aoFechar={lembrete.fechar} />}
       <header
         className="flex shrink-0 items-center gap-2 border-b border-borda bg-painel px-4 pb-2.5"
         style={{ paddingTop: 'max(10px, env(safe-area-inset-top))' }}

@@ -111,6 +111,8 @@ function MostrarEm({
   canto,
   soTela,
   dica,
+  esperando,
+  mostrarAgora,
 }: {
   config: Config
   salvar: (c: Config) => void
@@ -119,6 +121,9 @@ function MostrarEm({
   canto?: (typeof CANTO)[keyof typeof CANTO]
   soTela?: boolean
   dica?: string
+  /** a ferramenta em tela cheia está esperando o conteúdo desta saída sair */
+  esperando?: (s: ConfigSaida) => boolean
+  mostrarAgora?: (s: ConfigSaida) => void
 }) {
   const saidas = config.saidas.filter((s) => s.ativa)
   const mudarSaida = (id: string, parcial: Partial<ConfigSaida>) => salvar({ ...config, saidas: config.saidas.map((s) => (s.id === id ? { ...s, ...parcial } : s)) })
@@ -134,6 +139,19 @@ function MostrarEm({
               {s.nome}
             </span>
             <Segmentado tamanho="sm" valor={m} aoMudar={(v) => aoMudar(s, v)} opcoes={opcoes} />
+            {m === 'tela' && esperando?.(s) && (
+              <button
+                type="button"
+                className="cursor-pointer rounded border border-aviso/50 bg-aviso/10 px-1.5 py-0.5 text-[11px] font-semibold text-aviso-texto hover:bg-aviso/20"
+                title="Há outra coisa no ar nesta saída. A ferramenta volta em tela cheia sozinha quando ela sair (fim do vídeo, Parar, Esc). Clique para pôr por cima agora."
+                onClick={(e) => {
+                  e.currentTarget.blur()
+                  mostrarAgora?.(s)
+                }}
+              >
+                Esperando a mídia sair · pôr agora
+              </button>
+            )}
             {canto && (m === 'canto' || (m === 'tela' && canto.daTela)) && (
               <>
                 <SeletorPosicao valor={s[canto.posicao]} aoMudar={(p) => mudarSaida(s.id, { [canto.posicao]: p })} />
@@ -159,11 +177,17 @@ function MostrarEm({
 /** "Mostrar em" das ferramentas que ligam pelo motor. */
 function MostrarEmMotor({ ferramenta, ...p }: Props & { ferramenta: Ferramenta; canto?: (typeof CANTO)[keyof typeof CANTO]; soTela?: boolean; dica?: string }) {
   const ex = p.estado.ferramentas.exibicao[ferramenta]
+  const espera = p.estado.ferramentas.emEspera?.[ferramenta] ?? {}
   return (
     <MostrarEm
       {...p}
       modo={(s) => ex[s.id] ?? 'nao'}
       aoMudar={(s, m) => void api.comando({ tipo: 'ferramenta:mostrar', ferramenta, alvo: s.id, modo: m === 'nao' ? null : m })}
+      esperando={(s) => {
+        const e = p.estado.saidas[s.id]
+        return !!espera[s.id] && !!e && e.conteudo.tipo !== 'vazio' && e.tela !== 'limpar'
+      }}
+      mostrarAgora={(s) => void api.comando({ tipo: 'ferramenta:mostrar', ferramenta, alvo: s.id, modo: 'tela' })}
     />
   )
 }

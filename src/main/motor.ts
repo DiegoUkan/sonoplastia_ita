@@ -27,6 +27,7 @@ import {
   type EstadoSaida,
   type FonteAudio,
   type Fundo,
+  type ModoTela,
   type SlideMusica,
   type SlideNoMotor,
   TODAS,
@@ -50,6 +51,7 @@ function saidaNova(id: string): EstadoSaida {
 function ferramentasNovas(): EstadoFerramentas {
   return {
     exibicao: Object.fromEntries(FERRAMENTAS.map((f) => [f, {}])) as EstadoFerramentas['exibicao'],
+    emEspera: Object.fromEntries(FERRAMENTAS.map((f) => [f, {}])) as NonNullable<EstadoFerramentas['emEspera']>,
     temporizador: temporizadorNovo(),
     qr: { link: '', texto: '' },
     mensagem: '',
@@ -86,6 +88,11 @@ export interface DadosAbrirApresentacao {
 
 /** O que fazer quando o áudio de uma música chega ao fim (configuração). */
 export type AoTerminarMusica = 'fechar' | 'logo' | 'manter'
+/** O que fazer quando um vídeo avulso chega ao fim (configuração): sair do ar, mostrar o Logo ou ficar no último quadro. */
+export type AoTerminarVideo = 'sair' | 'logo' | 'congelar'
+
+/** Limpar e Logo escondem o conteúdo (o Preto também, mas ele é "só a imagem": o som continua). */
+const ESCONDE_VIDEO: ModoTela[] = ['limpar', 'logo']
 
 const SEM_FUNDO: Fundo = { tipo: 'nenhum' }
 const mesmoFundo = (a: Fundo, b: Fundo) => a.tipo === b.tipo && (a.tipo === 'nenhum' || a.url === (b as { url: string }).url)
@@ -129,6 +136,10 @@ export class Motor extends EventEmitter {
   midiasDosSlides: ModoMidiasSlides = 'como-no-arquivo'
   /** o que acontece quando o áudio da música termina (configuração) */
   aoTerminarMusica: AoTerminarMusica = 'fechar'
+  /** o que acontece quando um vídeo avulso termina (configuração) */
+  aoTerminarVideo: AoTerminarVideo = 'sair'
+  /** Limpar e Logo pausam o vídeo da saída; a volta para a tela normal continua de onde parou (configuração) */
+  limparPausaVideo = true
   private _fundoPadrao: Fundo = SEM_FUNDO
   private _volume = 1
 
@@ -155,7 +166,9 @@ export class Motor extends EventEmitter {
       }
       e.saidas = saidas
       // saída removida deixa de mostrar as ferramentas
-      for (const ex of Object.values(e.ferramentas.exibicao)) for (const id of Object.keys(ex)) if (!saidas[id]) delete ex[id]
+      for (const ex of [...Object.values(e.ferramentas.exibicao), ...Object.values(e.ferramentas.emEspera ?? {})]) {
+        for (const id of Object.keys(ex)) if (!saidas[id]) delete ex[id]
+      }
     })
   }
 
@@ -294,6 +307,7 @@ export class Motor extends EventEmitter {
     s.conteudo = conteudo
     s.fundo = this.fundoDe(conteudo, e)
     s.chave = this.proximaChave++
+    s.video.pausadoPelaTela = false
     // conteúdo novo sai de "limpar" e "logo"; o preto só sai com comando explícito
     if (s.tela === 'limpar' || s.tela === 'logo') s.tela = 'normal'
     if (liberar && conteudo.tipo !== 'vazio') liberarSaida(e, s.id)
@@ -321,7 +335,7 @@ export class Motor extends EventEmitter {
         for (const id of this.ids(e, c.alvo)) e.saidas[id]!.fundo = c.fundo
         return
       case 'tela':
-        for (const id of this.ids(e, c.alvo)) e.saidas[id]!.tela = c.tela
+        for (const id of this.ids(e, c.alvo)) this.mudarTela(e.saidas[id]!, c.tela)
         return
       case 'midia':
         if (c.alvo === AUDIO) {
@@ -345,6 +359,8 @@ export class Motor extends EventEmitter {
             s.video.tocando = false
           } else {
             acaoNoControle(s.video, c.acao)
+            // o operador mexeu no player: a volta da tela normal não muda mais nada
+            s.video.pausadoPelaTela = false
             // o operador já começou o vídeo do slide pelo player: o próximo clique troca de slide
             const a = e.apresentacao
             if (c.acao !== 'pausar' && a && mostraApresentacao(s, a.apresentacaoId)) a.midiasIniciadas = true
@@ -417,6 +433,19 @@ export class Motor extends EventEmitter {
         for (const id of comLetra) if (e.saidas[id]!.tela !== 'preto') e.saidas[id]!.tela = 'logo'
         return
       }
+      case 'video:terminou': {
+        if (this.aoTerminarVideo === 'congelar') return
+        // vale para todas as saídas com esse vídeo avulso (o Palco sem vídeo não avisa nada; quem toca avisa).
+        // O aviso de um vídeo que já saiu do ar (ou com "repetir") não muda nada.
+        for (const s of Object.values(e.saidas)) {
+          if (s.conteudo.tipo !== 'video' || s.conteudo.url !== c.url || s.video.repetir) continue
+          // sem conteúdo, a ferramenta em tela cheia que estava esperando volta sozinha
+          this.mostrarEm(e, s, { tipo: 'vazio' })
+          s.video.tocando = false
+          if (this.aoTerminarVideo === 'logo' && s.tela !== 'preto') s.tela = 'logo'
+        }
+        return
+      }
       case 'apresentacao:slide': {
         const a = e.apresentacao
         if (!a) return
@@ -437,9 +466,12 @@ export class Motor extends EventEmitter {
       case 'ferramenta:mostrar': {
         const ex = e.ferramentas.exibicao[c.ferramenta]
         if (!ex) return
+        const espera = esperaDe(e, c.ferramenta)
         for (const id of this.ids(e, c.alvo)) {
           if (c.modo === 'canto' || c.modo === 'tela') ex[id] = c.modo
           else delete ex[id]
+          // o operador escolheu de novo: vale agora, por cima do que estiver no ar
+          delete espera[id]
         }
         return
       }
@@ -477,6 +509,28 @@ export class Motor extends EventEmitter {
         s.seq += 1
         return
       }
+    }
+  }
+
+  /**
+   * Preto, Limpar, Logo ou normal numa saída. Limpar e Logo pausam o vídeo que está tocando nela (opção
+   * `limparPausaVideo`); a volta para a tela normal continua de onde parou. O Preto não pausa (é o jeito de
+   * deixar só o som), mas um vídeo pausado pelo Limpar continua pausado sob o Preto.
+   */
+  private mudarTela(s: EstadoSaida, tela: ModoTela): void {
+    const antes = s.tela
+    s.tela = tela
+    if (!videoDoConteudo(s.conteudo)) return
+    if (ESCONDE_VIDEO.includes(tela) && !ESCONDE_VIDEO.includes(antes)) {
+      if (this.limparPausaVideo && s.video.tocando) {
+        s.video.tocando = false
+        s.video.ordem += 1
+        s.video.pausadoPelaTela = true
+      }
+    } else if (tela === 'normal' && s.video.pausadoPelaTela) {
+      s.video.pausadoPelaTela = false
+      s.video.tocando = true
+      s.video.ordem += 1
     }
   }
 
@@ -721,19 +775,29 @@ function proximaBusca(ctl: ControleMidia, segundos: number, relativo = false): C
   return { seq: ctl.busca.seq + 1, segundos, relativo }
 }
 
+/** As saídas onde a ferramenta em tela cheia está esperando o conteúdo sair (cria, num estado antigo). */
+function esperaDe(e: EstadoMotor, f: (typeof FERRAMENTAS)[number]): Record<string, true> {
+  const espera = (e.ferramentas.emEspera ??= Object.fromEntries(FERRAMENTAS.map((x) => [x, {}])) as NonNullable<EstadoFerramentas['emEspera']>)
+  return (espera[f] ??= {})
+}
+
 /**
- * Uma ferramenta em tela cheia nunca segura a saída quando o operador abre outra coisa nela: o
- * temporizador vai para o canto (continua contando, sem cobrir a mídia); QR code, mensagem e sorteio
- * saem. O que já está no canto fica. (O relógio em tela cheia é da configuração: a saída o desenha no
- * canto enquanto houver conteúdo no ar.)
+ * Uma ferramenta em tela cheia nunca segura a saída quando o operador abre outra coisa nela, mas também não
+ * é desligada (pedido de 21/11: "quando sai da mídia deveria voltar em tela cheia"): ela fica esperando. Com
+ * conteúdo no ar, o temporizador aparece no canto (continua contando) e o QR e a mensagem somem; quando a
+ * saída fica sem conteúdo (fim do vídeo, Parar, Esc), voltam em tela cheia (`modosNaSaida`). O sorteio sai de
+ * vez (o resultado era daquele momento). O que já está no canto fica. O relógio em tela cheia é da
+ * configuração e já fazia isso.
  */
 function liberarSaida(e: EstadoMotor, saidaId: string): void {
   const ex = e.ferramentas.exibicao
   for (const f of FERRAMENTAS) {
     // o sorteio é sempre em tela cheia (qualquer modo dele cobre a saída)
-    if (ex[f][saidaId] !== 'tela' && !(f === 'sorteio' && ex[f][saidaId])) continue
-    if (f === 'temporizador') ex[f][saidaId] = 'canto'
-    else delete ex[f][saidaId]
+    if (f === 'sorteio') {
+      if (ex[f][saidaId]) delete ex[f][saidaId]
+      continue
+    }
+    if (ex[f][saidaId] === 'tela') esperaDe(e, f)[saidaId] = true
   }
 }
 

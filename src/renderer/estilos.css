@@ -126,6 +126,15 @@ select {
   }
 }
 
+/* lembrete do canal do PC na mesa de som: um anel pulsando em volta do aviso */
+@keyframes lembrete-canal {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-aviso) 60%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-aviso) 0%, transparent);
+  }
+}
 /* temporizador no fim */
 @keyframes piscar {
   50% {

@@ -53,6 +53,8 @@ export interface ControleMidia {
   ordem: number
   /** pedido de posição, aplicado quando `seq` muda */
   busca: { seq: number; segundos: number; relativo: boolean }
+  /** o Limpar (ou o Logo) pausou o vídeo; ao voltar para a tela normal ele continua de onde parou */
+  pausadoPelaTela?: boolean
 }
 
 export interface EstadoSaida {
@@ -139,6 +141,13 @@ export interface EstadoLiturgia {
 export interface EstadoFerramentas {
   /** onde cada ferramenta aparece agora: id da saída → modo (saída ausente = não aparece) */
   exibicao: Record<Ferramenta, Record<string, ModoFerramenta>>
+  /**
+   * Ferramentas em tela cheia esperando o conteúdo sair (id da saída → true). Quando o operador abre algo
+   * numa saída com uma ferramenta em tela cheia, ela não é desligada: espera (o temporizador vai para o
+   * canto; QR e mensagem somem) e volta em tela cheia quando a saída fica sem conteúdo (fim do vídeo,
+   * Parar, Esc). Opcional: estados de antes de 25/11 não têm.
+   */
+  emEspera?: Record<Ferramenta, Record<string, true>>
   temporizador: EstadoTemporizador
   qr: { link: string; texto: string }
   /** mensagem rápida (ex.: "Faltam 5 minutos" para o Palco) */
@@ -182,6 +191,8 @@ export type Comando =
   | { tipo: 'musica:fechar' }
   /** a janela de áudio avisa que o áudio `url` chegou ao fim (a música fecha, conforme a configuração) */
   | { tipo: 'audio:terminou'; url: string }
+  /** uma saída avisa que o vídeo `url` chegou ao fim (sai do ar, mostra o Logo ou fica no último quadro) */
+  | { tipo: 'video:terminou'; url: string }
   /** mostra um slide da apresentação aberta; com `alvo`, passa a mostrar nessas saídas */
   | { tipo: 'apresentacao:slide'; indice: number; alvo?: Alvo }
   /** passador: o "próximo" começa as mídias "no clique" do slide antes de trocar de slide */
@@ -212,6 +223,10 @@ export interface TelemetriaVideo {
   tocando: boolean
   quadros: number
   perdidos: number
+  /** quando a posição foi lida (Date.now() de quem mandou): a outra saída corrige a sincronia por ela */
+  em?: number
+  /** o elemento de vídeo deu erro (código e mensagem do Chromium) */
+  erro?: string | null
 }
 
 /** O que cada janela que toca mídia informa (saídas e a janela de áudio, com saidaId = AUDIO). */

@@ -24,6 +24,8 @@ export interface ConfigPublica {
   saidas: Array<{ id: string; nome: string; ativa: boolean }>
   biblia: ConfigBiblia
   telaEspera: Pick<ConfigTelaEspera, 'texto'>
+  /** lembrete de abrir o canal do PC na mesa de som (o celular mostra também) */
+  lembreteCanal: { ligado: boolean; intervaloMin: number }
 }
 
 export type DirecaoPassador = 'proximo' | 'anterior'

@@ -313,6 +313,18 @@ export class ExecutorLiturgia {
     if (a.avancar && !a.avancou) this.avancarSozinho()
   }
 
+  /**
+   * Uma saída avisou que o vídeo `url` terminou (antes de o motor tirar o vídeo do ar): luz de fim e, se o item
+   * pedir, o próximo item. A telemetria (abaixo) continua valendo; o `avancou` impede passar duas vezes.
+   */
+  aoTerminarVideo(url: string): void {
+    const a = this.atual
+    if (!a || a.tipo !== 'midia' || !a.url || a.url !== url) return
+    if (this.d.motor.estado.liturgia?.itemId !== a.itemId) return
+    this.fimDaMidia()
+    if (a.avancar && !a.avancou) this.avancarSozinho()
+  }
+
   /** Telemetria das saídas: o vídeo do item chegou ao fim → luz de fim e, se o item pedir, o próximo item. */
   aoTelemetria(t: Telemetria): void {
     const a = this.atual

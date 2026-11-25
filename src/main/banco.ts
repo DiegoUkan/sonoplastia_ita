@@ -154,6 +154,12 @@ const MIGRACOES: string[] = [
   );
   create index site_itens_midia on site_itens (midia_id);
   `,
+  // 5: formato dos vídeos (codec, quadros por segundo) e por que pesa para este PC (21/11: um AV1 1440p travou)
+  `
+  alter table midias add column codec text;
+  alter table midias add column qps real;
+  alter table midias add column pesado text;
+  `,
 ]
 
 export function abrirBanco(arquivo: string): Banco {

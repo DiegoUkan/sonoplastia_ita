@@ -7,6 +7,7 @@ import {
   BookOpen,
   ChevronRight,
   CloudDownload,
+  Film,
   Lightbulb,
   Download,
   type LucideIcon,
@@ -34,8 +35,10 @@ import {
   EsquemaTranscricaoAuto,
   EsquemaTranscricaoEscuta,
   EsquemaTranscricaoIA,
+  EsquemaVideos,
 } from '../../shared/config'
 import type { Progresso, ResultadoLouvorJa } from '../../shared/dados'
+import type { EstadoConversor } from '../../shared/ipc'
 import { urlMidia } from '../../shared/midia'
 import { TelaEspera } from '../compartilhado/Camadas'
 import { api } from '../compartilhado/ganchos'
@@ -45,7 +48,7 @@ import { FormularioEsquema } from './FormularioEsquema'
 import { SecaoRemoto } from './Remoto'
 import { BarraProgresso, Botao, Secao } from './ui'
 
-type IdPasta = 'geral' | 'musicas' | 'biblia' | 'transcricao' | 'apresentacoes' | 'fundos' | 'espera' | 'ferramentas' | 'site' | 'iluminacao' | 'remoto'
+type IdPasta = 'geral' | 'musicas' | 'videos' | 'biblia' | 'transcricao' | 'apresentacoes' | 'fundos' | 'espera' | 'ferramentas' | 'site' | 'iluminacao' | 'remoto'
 
 const nomeArquivo = (caminho: string) => caminho.split(/[\\/]/).pop() ?? caminho
 
@@ -64,6 +67,14 @@ const PASTAS: Array<{ id: IdPasta; titulo: string; descricao: string; icone: Luc
     icone: Music,
     resumo: (c) =>
       `Antecipação ${c.musicas.antecipacaoMs} ms · no fim: ${{ fechar: 'fecha', logo: 'mostra o Logo', manter: 'continua' }[c.musicas.aoTerminar]}`,
+  },
+  {
+    id: 'videos',
+    titulo: 'Vídeos e som',
+    descricao: 'Fim do vídeo, Esc, vídeos pesados (conversor) e o lembrete do canal do PC na mesa.',
+    icone: Film,
+    resumo: (c) =>
+      `No fim: ${{ sair: 'sai do ar', logo: 'mostra o Logo', congelar: 'último quadro' }[c.videos.aoTerminar]} · ${c.videos.lembreteCanal ? 'com lembrete da mesa' : 'sem lembrete da mesa'}`,
   },
   {
     id: 'biblia',
@@ -221,6 +232,15 @@ function ConteudoPasta({ pasta, config, salvar }: { pasta: IdPasta; config: Conf
             <FormularioEsquema esquema={EsquemaMusicas} valor={config.musicas} aoMudar={(musicas) => salvar({ ...config, musicas })} />
           </Secao>
           <AtualizarLouvorJa pasta={config.musicas.pastaLouvorJa} />
+        </>
+      )
+    case 'videos':
+      return (
+        <>
+          <Secao titulo="Vídeos e som" descricao="Se o vídeo toca também no Palco (e o tempo que falta por cima) fica em Telas, em cada saída.">
+            <FormularioEsquema esquema={EsquemaVideos} valor={config.videos} aoMudar={(videos) => salvar({ ...config, videos })} />
+          </Secao>
+          <ConversorVideo />
         </>
       )
     case 'biblia':
@@ -421,6 +441,74 @@ function AtualizarLouvorJa({ pasta }: { pasta: string }) {
         </p>
       )}
       {erro && <p className="mt-3 text-sm text-perigo-texto">{erro}</p>}
+    </Secao>
+  )
+}
+
+/**
+ * O conversor de vídeo que o programa usa. O do Holyrics é de 2014 e não lê AV1 (o vídeo do site que travou em
+ * 21/11 era AV1 2560×1440): o botão baixa um ffmpeg novo, com versão e SHA-256 fixos.
+ */
+function ConversorVideo() {
+  const [estado, setEstado] = useState<EstadoConversor | null>(null)
+  const [baixando, setBaixando] = useState(false)
+  const [progresso, setProgresso] = useState<Progresso | null>(null)
+  const [mensagem, setMensagem] = useState<{ texto: string; erro: boolean } | null>(null)
+
+  useEffect(() => {
+    void api.estadoConversor().then(setEstado)
+    return api.aoProgresso((p) => {
+      if (p.tarefa === 'ffmpeg') setProgresso(p.fim ? null : p)
+    })
+  }, [])
+
+  const baixar = async () => {
+    setBaixando(true)
+    setMensagem(null)
+    try {
+      const e = await api.instalarConversor()
+      setEstado(e)
+      setMensagem({ texto: e.pesados ? `Instalado. Convertendo ${e.pesados} vídeo${e.pesados > 1 ? 's' : ''} pesado${e.pesados > 1 ? 's' : ''} (veja em Mídias).` : 'Instalado.', erro: false })
+    } catch (e) {
+      setMensagem({ texto: mensagemDeErro(e), erro: true })
+    } finally {
+      setBaixando(false)
+    }
+  }
+
+  const origem = !estado?.caminho ? 'nenhum' : estado.novoInstalado && !estado.antigo ? 'o novo' : estado.antigo ? 'o do Holyrics (2014, não lê AV1)' : nomeArquivo(estado.caminho)
+  return (
+    <Secao
+      titulo="Conversor de vídeo (ffmpeg)"
+      descricao="Converte os vídeos que este computador não toca bem. O do Holyrics é antigo e não lê AV1, o formato que o YouTube costuma entregar."
+    >
+      <p className="text-sm text-texto">
+        Em uso: <b>{origem}</b>
+        {estado?.pesados ? (
+          <span className="text-aviso-texto">
+            {' '}
+            · {estado.pesados} vídeo{estado.pesados > 1 ? 's' : ''} pesado{estado.pesados > 1 ? 's' : ''} na biblioteca
+          </span>
+        ) : null}
+      </p>
+      {estado && !estado.novoInstalado && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Botao icone={Download} disabled={baixando} onClick={() => void baixar()}>
+            Baixar o conversor novo ({estado.megasNova} MB)
+          </Botao>
+          <span className="text-xs text-suave">{estado.versaoNova}, uma vez só. Não baixe durante o culto (usa a internet da igreja).</span>
+        </div>
+      )}
+      {baixando && (
+        <div className="mt-3 max-w-md">
+          <BarraProgresso fracao={progresso ? progresso.feito / Math.max(1, progresso.total) : 0} texto={progresso ? `${progresso.feito} de ${progresso.total} MB` : 'começando…'} />
+        </div>
+      )}
+      {mensagem && <p className={`mt-3 text-sm ${mensagem.erro ? 'text-perigo-texto' : 'text-suave'}`}>{mensagem.texto}</p>}
+      <p className="mt-3 text-xs text-suave">
+        A conversão roda com prioridade baixa e o vídeo original continua tocando enquanto isso; o arquivo só é trocado quando o vídeo não está no ar. Um vídeo de
+        7 minutos em 1440p leva uns 10 minutos neste computador: o ideal é que os vídeos já cheguem em H.264 até 1080p.
+      </p>
     </Secao>
   )
 }

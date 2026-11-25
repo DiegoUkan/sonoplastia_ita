@@ -12,6 +12,7 @@ import {
   faixaDoRelogio,
   formatarSegundos,
   lerTemporizador,
+  modosNaSaida,
   nomesDoSorteio,
   type RegrasTemporizador,
   sobrepoe,
@@ -149,19 +150,61 @@ describe('Ferramenta em tela cheia não segura a saída', () => {
     m.executar({ tipo: 'ferramenta:mostrar', ferramenta: 'sorteio', alvo: 'palco', modo: 'tela' })
     m.executar({ tipo: 'ferramenta:mostrar', ferramenta: 'temporizador', alvo: TODAS, modo: 'tela' })
   }
+  /** o que a saída desenha agora (a regra de `modosNaSaida`, com o conteúdo dela) */
+  const desenho = (m: Motor, id: string) => {
+    const s = m.estado.saidas[id]!
+    return modosNaSaida(id, { relogio: 'nao' }, m.estado.ferramentas, s.conteudo.tipo !== 'vazio' && s.tela !== 'limpar')
+  }
 
-  it('abrir um vídeo numa saída tira QR, mensagem e sorteio dela e manda o temporizador para o canto', () => {
+  it('abrir um vídeo numa saída põe as ferramentas dela em espera (temporizador no canto; QR e mensagem somem) e tira o sorteio', () => {
     const m = new Motor(['publico', 'palco'])
     ligar(m)
     m.executar({ tipo: 'mostrar', alvo: 'publico', conteudo: { tipo: 'video', url: 'midia://local/v.mp4', nome: 'v', loop: false } })
     const ex = m.estado.ferramentas.exibicao
-    expect(ex.qr).toEqual({ palco: 'tela' })
-    expect(ex.mensagem).toEqual({})
-    expect(ex.temporizador).toEqual({ publico: 'canto', palco: 'tela' })
+    // não desliga: continuam em tela cheia, esperando
+    expect(ex.qr).toEqual({ publico: 'tela', palco: 'tela' })
+    expect(ex.mensagem).toEqual({ publico: 'tela' })
+    expect(ex.temporizador).toEqual({ publico: 'tela', palco: 'tela' })
+    expect(m.estado.ferramentas.emEspera).toMatchObject({ qr: { publico: true }, mensagem: { publico: true }, temporizador: { publico: true } })
+    expect(desenho(m, 'publico')).toMatchObject({ temporizador: 'canto', qr: null, mensagem: null })
     // a outra saída não muda
     expect(ex.sorteio).toEqual({ palco: 'tela' })
+    expect(desenho(m, 'palco')).toMatchObject({ temporizador: 'tela', qr: 'tela', sorteio: 'tela' })
+    // o sorteio sai de vez (o resultado era daquele momento)
     m.executar({ tipo: 'mostrar', alvo: 'palco', conteudo: { tipo: 'texto', texto: 'Oi' } })
-    expect(m.estado.ferramentas.exibicao).toMatchObject({ qr: {}, sorteio: {}, temporizador: { publico: 'canto', palco: 'canto' } })
+    expect(m.estado.ferramentas.exibicao.sorteio).toEqual({})
+    expect(desenho(m, 'palco')).toMatchObject({ temporizador: 'canto', qr: null, sorteio: null })
+  })
+
+  it('quando a mídia sai (fim do vídeo, Parar, Esc) a ferramenta volta em tela cheia; "Não" tira de vez', () => {
+    const m = new Motor(['publico', 'palco'])
+    ligar(m)
+    m.executar({ tipo: 'mensagem:definir', texto: 'Faltam 5 minutos' })
+    const v = { tipo: 'video' as const, url: 'midia://local/v.mp4', nome: 'v', loop: false }
+    m.executar({ tipo: 'mostrar', alvo: 'publico', conteudo: v })
+    // fim do vídeo
+    m.executar({ tipo: 'video:terminou', url: v.url })
+    expect(m.estado.saidas.publico!.conteudo.tipo).toBe('vazio')
+    expect(desenho(m, 'publico')).toMatchObject({ temporizador: 'tela', qr: 'tela', mensagem: 'tela' })
+    // de novo um vídeo e o Esc (Limpar): volta; tirar o Limpar traz o vídeo e ela espera de novo
+    m.executar({ tipo: 'mostrar', alvo: 'publico', conteudo: v })
+    expect(desenho(m, 'publico')).toMatchObject({ temporizador: 'canto', qr: null })
+    m.executar({ tipo: 'tela', alvo: TODAS, tela: 'limpar' })
+    expect(desenho(m, 'publico')).toMatchObject({ temporizador: 'tela', qr: 'tela' })
+    m.executar({ tipo: 'tela', alvo: TODAS, tela: 'normal' })
+    expect(desenho(m, 'publico')).toMatchObject({ temporizador: 'canto', qr: null })
+    // Parar no player
+    m.executar({ tipo: 'midia', alvo: 'publico', acao: 'parar' })
+    expect(desenho(m, 'publico')).toMatchObject({ temporizador: 'tela', qr: 'tela' })
+    // escolher de novo "Tela cheia" põe por cima do que estiver no ar
+    m.executar({ tipo: 'mostrar', alvo: 'publico', conteudo: v })
+    m.executar({ tipo: 'ferramenta:mostrar', ferramenta: 'qr', alvo: 'publico', modo: 'tela' })
+    expect(desenho(m, 'publico')).toMatchObject({ qr: 'tela', temporizador: 'canto' })
+    // "Não" tira de vez
+    m.executar({ tipo: 'ferramenta:mostrar', ferramenta: 'temporizador', alvo: 'publico', modo: null })
+    m.executar({ tipo: 'midia', alvo: 'publico', acao: 'parar' })
+    expect(desenho(m, 'publico')).toMatchObject({ temporizador: null, qr: 'tela' })
+    expect(m.estado.ferramentas.emEspera?.temporizador).toEqual({})
   })
 
   it('o que está no canto fica; esvaziar a saída não tira nada', () => {
@@ -187,17 +230,25 @@ describe('Ferramenta em tela cheia não segura a saída', () => {
     m.executar({ tipo: 'qr:definir', link: 'https://igreja', texto: '' })
     m.executar({ tipo: 'ferramenta:mostrar', ferramenta: 'qr', alvo: TODAS, modo: 'tela' })
     m.executar({ tipo: 'musica:slide', indice: 0, origem: 'audio' })
-    expect(m.estado.ferramentas.exibicao.qr).toEqual({ publico: 'tela', palco: 'tela' })
-    // o operador escolher o trecho, sim
+    expect(desenho(m, 'publico').qr).toBe('tela')
+    expect(desenho(m, 'palco').qr).toBe('tela')
+    // o operador escolher o trecho, sim (o QR espera a música sair)
     m.executar({ tipo: 'musica:slide', indice: 1, origem: 'operador' })
-    expect(m.estado.ferramentas.exibicao.qr).toEqual({})
+    expect(desenho(m, 'publico').qr).toBeNull()
+    expect(desenho(m, 'palco').qr).toBeNull()
+    // a música fechou: o QR volta
+    m.executar({ tipo: 'musica:fechar' })
+    expect(desenho(m, 'publico').qr).toBe('tela')
 
     m.executar({ tipo: 'ferramenta:mostrar', ferramenta: 'qr', alvo: TODAS, modo: 'tela' })
     m.abrirMusica({ musicaId: 2, titulo: 'Outro', album: '', versao: 'manual', slides, alvo: 'palco', fundoUrl: null, audioUrl: null, tituloNaIntroducao: true })
-    expect(m.estado.ferramentas.exibicao.qr).toEqual({ publico: 'tela' })
+    expect(desenho(m, 'publico').qr).toBe('tela')
+    expect(desenho(m, 'palco').qr).toBeNull()
     const slide = { url: 'midia://local/s1.png', proporcao: 16 / 9, oculto: false, notas: '', midias: [] }
     m.abrirApresentacao({ apresentacaoId: 9, nome: 'Sermão', slides: [slide, { ...slide, url: 'midia://local/s2.png' }], alvo: 'publico' })
-    expect(m.estado.ferramentas.exibicao.qr).toEqual({})
+    expect(desenho(m, 'publico').qr).toBeNull()
+    m.executar({ tipo: 'apresentacao:fechar' })
+    expect(desenho(m, 'publico').qr).toBe('tela')
   })
 })
 
@@ -287,6 +338,9 @@ const midia = (id: number, tipo: Midia['tipo'], arquivo: string): Midia => ({
   situacao: 'pronto',
   detalhe: null,
   progresso: null,
+  formato: null,
+  pesado: null,
+  otimizando: null,
   criadoEm: '',
   excluida: false,
   site: null,
@@ -344,7 +398,7 @@ describe('Liturgia: itens de ferramenta', () => {
     ex.fechar()
   })
 
-  it('temporizador em tela cheia que pede para continuar vai para o canto quando o vídeo do próximo item entra', () => {
+  it('temporizador em tela cheia que pede para continuar espera o vídeo do próximo item (no canto) e volta quando ele termina', () => {
     const { motor, ex } = montar([
       it_({ id: 't', tipo: 'temporizador', temporizadorModo: 'regressivo', minutos: 5, ate: '', iniciar: true, modo: 'tela', manter: true }),
       it_({ id: 'v', tipo: 'midia', midiaId: 7 }),
@@ -353,8 +407,36 @@ describe('Liturgia: itens de ferramenta', () => {
     expect(motor.estado.ferramentas.exibicao.temporizador).toEqual({ publico: 'tela' })
     ex.vizinho(1, 1)
     expect(motor.estado.saidas.publico!.conteudo).toMatchObject({ tipo: 'video', url: 'midia://local/provai.mp4' })
-    expect(motor.estado.ferramentas.exibicao.temporizador).toEqual({ publico: 'canto' })
+    // continua em tela cheia, esperando o vídeo sair (desenhado no canto enquanto isso)
+    expect(motor.estado.ferramentas.exibicao.temporizador).toEqual({ publico: 'tela' })
+    expect(motor.estado.ferramentas.emEspera?.temporizador).toEqual({ publico: true })
+    const s = () => motor.estado.saidas.publico!
+    const desenho = () => modosNaSaida('publico', { relogio: 'nao' }, motor.estado.ferramentas, s().conteudo.tipo !== 'vazio' && s().tela !== 'limpar')
+    expect(desenho().temporizador).toBe('canto')
     expect(motor.estado.ferramentas.temporizador.rodando).toBe(true)
+    // o vídeo terminou: sai do ar e o temporizador volta em tela cheia
+    ex.aoTerminarVideo('midia://local/provai.mp4')
+    motor.executar({ tipo: 'video:terminou', url: 'midia://local/provai.mp4' })
+    expect(s().conteudo.tipo).toBe('vazio')
+    expect(desenho().temporizador).toBe('tela')
+    ex.fechar()
+  })
+
+  it('vídeo com "passar sozinho": no fim, a liturgia vai para o próximo item antes de o motor tirar o vídeo', () => {
+    const { motor, ex } = montar([
+      it_({ id: 'v', tipo: 'midia', midiaId: 7, avancar: true }),
+      it_({ id: 'x', tipo: 'texto', texto: 'Depois do vídeo' }),
+    ])
+    ex.executar(1, 'v', 'publico')
+    const chaves: string[] = []
+    motor.on('estado', (e) => chaves.push(e.saidas.publico!.conteudo.tipo))
+    // a ordem do processo principal: primeiro a liturgia, depois o motor
+    ex.aoTerminarVideo('midia://local/provai.mp4')
+    motor.executar({ tipo: 'video:terminou', url: 'midia://local/provai.mp4' })
+    expect(motor.estado.liturgia?.itemId).toBe('x')
+    expect(motor.estado.saidas.publico!.conteudo).toMatchObject({ tipo: 'texto', texto: 'Depois do vídeo' })
+    // a tela nunca ficou vazia no meio
+    expect(chaves).not.toContain('vazio')
     ex.fechar()
   })
 

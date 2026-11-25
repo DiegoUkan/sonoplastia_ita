@@ -19,7 +19,7 @@ import type { Config } from '../shared/config'
 import type { FiltroMidias, Progresso, SlideMusicaDados } from '../shared/dados'
 import { type Alvo, AUDIO, type Comando, type Fundo, type Telemetria, type VersaoMusica } from '../shared/estado'
 import type { AlteracaoLiturgia } from '../shared/liturgia'
-import { CANAIS, type PedidoEscuta, type ResultadoSonda, type StatusEscuta, type TipoArquivo } from '../shared/ipc'
+import { CANAIS, type EstadoConversor, type PedidoEscuta, type ResultadoSonda, type StatusEscuta, type TipoArquivo } from '../shared/ipc'
 import { enderecoDaLuz } from '../shared/iluminacao'
 import { temposDaVersao } from '../shared/musica'
 import { BibliotecaApresentacoes } from './apresentacoes/biblioteca'
@@ -31,13 +31,14 @@ import { BibliotecaMidias, nomeLivre } from './biblioteca/midias'
 import { Sonda } from './biblioteca/sonda'
 import { caminhos, garantirPastas } from './caminhos'
 import { ArmazemConfig } from './config'
-import { acharFfmpeg, garantirVideoDeTeste } from './ffmpeg'
+import { acharFfmpeg, caminhoFfmpegBaixado, ehFfmpegAntigo, FFMPEG_NOVO, garantirVideoDeTeste, instalarFfmpeg } from './ffmpeg'
 import { ClienteIluminacao } from './iluminacao'
 import { iniciarLog, log } from './log'
 import { caminhoDaUrlMidia, ESQUEMA_MIDIA } from '../shared/midia'
 import { liberarArquivo, permitirPasta, registrarEsquemaPrivilegiado, tratarProtocoloMidia } from './midia'
-import { emUsoNoMotor, SincronizadorSite } from './site/sincronizador'
+import { emUsoNoMotor, normalizar, SincronizadorSite } from './site/sincronizador'
 import { Motor } from './motor'
+import { RegistroVideo } from './registroVideo'
 import { importarLouvorJa } from './musicas/louvorJa'
 import { ExecutorLiturgia } from './liturgia/executor'
 import { RepositorioLiturgias } from './liturgia/repositorio'
@@ -174,6 +175,8 @@ async function iniciar(): Promise<void> {
   motor.pularOcultos = cfg.apresentacoes.pularOcultos
   motor.midiasDosSlides = cfg.apresentacoes.midiasDosSlides
   motor.aoTerminarMusica = cfg.musicas.aoTerminar
+  motor.aoTerminarVideo = cfg.videos.aoTerminar
+  motor.limparPausaVideo = cfg.videos.limparPausa
   motor.definirFundoPadrao(fundoPadrao(cfg))
   motor.definirVolume(cfg.geral.volume)
   // o volume mexido no player fica gravado (um pouco depois de soltar, para não gravar a cada passo)
@@ -190,10 +193,42 @@ async function iniciar(): Promise<void> {
   // ligado mais abaixo, quando o sincronizador do site existe
   let marcarVistoSite: (caminho: string) => void = () => {}
   const pastaRecursos = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
-  const ffmpeg = acharFfmpeg(pastaRecursos)
+  // o conversor novo pode ser baixado com o programa aberto (Configurações → Vídeos e som): procura de novo depois
+  let ffmpeg = acharFfmpeg(pastaRecursos, caminhos.ffmpeg)
   const videoDeTeste = () => garantirVideoDeTeste(join(caminhos.videos, 'video-de-teste.mp4'), ffmpeg)
   const sonda = new Sonda(() => criarJanelaOculta('sonda'))
-  const midias = new BibliotecaMidias(db, { base: caminhos.midias, miniaturas: caminhos.miniaturas }, sonda, ffmpeg)
+  const midias = new BibliotecaMidias(db, { base: caminhos.midias, miniaturas: caminhos.miniaturas }, sonda, () => ffmpeg)
+  midias.converterPesados = () => armazem.obter().videos.converterPesados
+  midias.emUso = (arquivo) => emUsoNoMotor(motor.estado).arquivos.has(normalizar(arquivo))
+  const estadoConversor = (): EstadoConversor => ({
+    caminho: ffmpeg,
+    antigo: !!ffmpeg && ehFfmpegAntigo(ffmpeg),
+    novoInstalado: existsSync(caminhoFfmpegBaixado(caminhos.ffmpeg)),
+    versaoNova: FFMPEG_NOVO.versao,
+    megasNova: Math.round(FFMPEG_NOVO.bytes / 1e6),
+    pesados: midias.listar({ tipo: 'video' }).filter((m) => m.pesado).length,
+  })
+  ipcMain.handle(CANAIS.estadoConversor, () => estadoConversor())
+  let instalandoConversor = false
+  ipcMain.handle(CANAIS.instalarConversor, async () => {
+    if (instalandoConversor) throw new Error('O conversor já está sendo baixado (veja a barra de baixo).')
+    instalandoConversor = true
+    try {
+      const exe = await instalarFfmpeg({
+        pasta: caminhos.ffmpeg,
+        buscar: (url, init) => net.fetch(url, init),
+        aoProgresso: (feito, total) => progresso({ tarefa: 'ffmpeg', feito: Math.round(feito / 1e6), total: Math.max(1, Math.round(total / 1e6)), texto: 'Baixando o conversor de vídeo (MB)' }),
+      })
+      ffmpeg = acharFfmpeg(pastaRecursos, caminhos.ffmpeg)
+      log.info(`Conversor de vídeo instalado: ${exe}; em uso: ${ffmpeg}`)
+      // os vídeos pesados que esperavam o conversor
+      midias.otimizarPesados()
+      return estadoConversor()
+    } finally {
+      instalandoConversor = false
+      progresso({ tarefa: 'ffmpeg', feito: 1, total: 1, fim: true })
+    }
+  })
   const musicas = new RepositorioMusicas(db)
   const biblia = new RepositorioBiblia(db)
 
@@ -324,6 +359,8 @@ async function iniciar(): Promise<void> {
     motor.pularOcultos = c.apresentacoes.pularOcultos
     motor.midiasDosSlides = c.apresentacoes.midiasDosSlides
     motor.aoTerminarMusica = c.musicas.aoTerminar
+    motor.aoTerminarVideo = c.videos.aoTerminar
+    motor.limparPausaVideo = c.videos.limparPausa
     motor.definirFundoPadrao(fundoPadrao(c))
     motor.sincronizarSaidas(c.saidas.map((s) => s.id))
     aplicarTema(c)
@@ -342,6 +379,10 @@ async function iniciar(): Promise<void> {
 
   // --- motor, configurações e telas
   ipcMain.handle(CANAIS.comando, (_e, c: Comando) => {
+    // fim do vídeo: a liturgia passa primeiro para o próximo item (se o item pedir); só depois o motor tira o
+    // vídeo do ar. Se o próximo item já trocou o conteúdo, o aviso não muda mais nada; ao contrário, a tela
+    // piscaria vazia antes do próximo item.
+    if (c.tipo === 'video:terminou') executorLiturgia?.aoTerminarVideo(c.url)
     motor.executar(c)
     // fim do áudio: a liturgia pode passar sozinha para o próximo item
     if (c.tipo === 'audio:terminou') executorLiturgia?.aoTerminarAudio(c.url)
@@ -365,9 +406,21 @@ async function iniciar(): Promise<void> {
       return null
     }
   })
+  // como cada vídeo tocou (começo, paradas, quadros perdidos) vai para o log: "travou: download ou sistema?"
+  const registroVideo = new RegistroVideo({
+    log,
+    formatoDe: (url) => {
+      try {
+        return url.startsWith(`${ESQUEMA_MIDIA}:`) ? midias.formatoDoArquivo(caminhoDaUrlMidia(url)) : null
+      } catch {
+        return null
+      }
+    },
+  })
   ipcMain.on(CANAIS.telemetria, (_e, t: Telemetria) => {
     telemetrias.set(t.saidaId, t)
     executorLiturgia?.aoTelemetria(t)
+    if (t.saidaId !== AUDIO) registroVideo.receber(t, motor.estado)
     transmitir(CANAIS.telemetria, t)
   })
   ipcMain.on(CANAIS.sondaResultado, (_e, r: ResultadoSonda) => sonda.receber(r))

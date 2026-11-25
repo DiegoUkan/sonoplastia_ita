@@ -7,6 +7,9 @@ import { api, useConfig, useEstado, useTelemetrias } from '../compartilhado/ganc
 
 const saidaId = new URLSearchParams(location.search).get('saida') ?? 'publico'
 
+/** O vídeo avulso desta saída chegou ao fim: o motor decide o que fica na tela (Configurações → Vídeos e som). */
+const aoTerminarVideo = (url: string) => void api.comando({ tipo: 'video:terminou', url })
+
 function tamanhoReal() {
   return { largura: Math.round(innerWidth * devicePixelRatio), altura: Math.round(innerHeight * devicePixelRatio) }
 }
@@ -45,15 +48,21 @@ function Saida() {
 
   if (!estado || !config || !s || !c) return null
 
-  // esta saída não mostra vídeo: usa o tempo da saída que está tocando o mesmo vídeo
+  // a referência do vídeo é a primeira saída (na ordem das Telas) que toca o mesmo vídeo. Esta saída sem
+  // vídeo mostra o tempo dela; esta saída tocando junto acompanha a posição dela (Público e Palco juntos).
   let telemetriaOutra = null
-  if (videoAqui && !c.mostrarVideo) {
+  let sincronizarCom = null
+  if (videoAqui) {
     const url = videoAqui.url
-    const outra = config.saidas.find((x) => {
+    const referencia = config.saidas.find((x) => {
       const e = estado.saidas[x.id]
-      return x.id !== saidaId && x.mostrarVideo && !!e && videoDoConteudo(e.conteudo)?.url === url
+      return x.mostrarVideo && !!e && videoDoConteudo(e.conteudo)?.url === url
     })
-    telemetriaOutra = outra ? (telemetrias[outra.id]?.video ?? null) : null
+    if (referencia && referencia.id !== saidaId) {
+      const t = telemetrias[referencia.id]?.video ?? null
+      if (c.mostrarVideo) sincronizarCom = t
+      else telemetriaOutra = t
+    }
   }
 
   return (
@@ -66,6 +75,8 @@ function Saida() {
         resolucao={`${tamanho.largura} × ${tamanho.altura}`}
         aoTelemetriaVideo={enviar}
         telemetriaVideo={telemetriaOutra}
+        sincronizarCom={sincronizarCom}
+        aoTerminarVideo={aoTerminarVideo}
         saidaAudio={config.geral.saidaAudio}
         ferramentas={estado.ferramentas}
         cfgFerramentas={config.ferramentas}

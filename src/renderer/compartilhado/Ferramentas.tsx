@@ -4,9 +4,9 @@
  * as do canto ficam por cima do Logo (o relógio e a contagem continuam na tela de espera). O Preto
  * cobre tudo.
  *
- * Nenhuma ferramenta em tela cheia segura a saída: quando o operador abre outra coisa nela, o motor
- * tira o QR, a mensagem e o sorteio e manda o temporizador para o canto (`liberarSaida`); o relógio em
- * tela cheia (da configuração) é desenhado no canto enquanto houver conteúdo no ar.
+ * Nenhuma ferramenta em tela cheia segura a saída: quando o operador abre outra coisa nela, o motor a põe
+ * em espera (`liberarSaida`; o sorteio sai de vez). Enquanto houver conteúdo no ar, o temporizador e o
+ * relógio de tela cheia aparecem no canto e o QR e a mensagem somem; sem conteúdo, voltam em tela cheia.
  *
  * Tamanhos em unidades do contêiner (cqh/cqw), como o resto da saída.
  */
@@ -22,7 +22,7 @@ import {
   type FaseTemporizador,
   lerTemporizador,
   MARGEM_CANTO_PCT,
-  type ModoFerramenta,
+  modosNaSaida,
   type Posicao,
   type RegrasTemporizador,
   sobrepoe,
@@ -63,21 +63,8 @@ function textoDaData(agora: number): string {
   return new Date(agora).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
 }
 
-/**
- * Modo de cada ferramenta nesta saída (null = não aparece). `comConteudo`: há algo no ar na saída; o
- * relógio em tela cheia (da configuração) vai para o canto, para não cobrir a mídia.
- */
-export function modosNaSaida(saidaId: string, config: ConfigSaida, f: EstadoFerramentas | undefined, comConteudo = false) {
-  const de = (k: keyof EstadoFerramentas['exibicao']): ModoFerramenta | null => f?.exibicao[k]?.[saidaId] ?? null
-  return {
-    relogio: config.relogio === 'nao' ? null : config.relogio === 'tela' && comConteudo ? ('canto' as const) : config.relogio,
-    temporizador: de('temporizador'),
-    qr: f?.qr.link ? de('qr') : null,
-    mensagem: f?.mensagem.trim() ? de('mensagem') : null,
-    // o sorteio é sempre em tela cheia
-    sorteio: de('sorteio') ? ('tela' as const) : null,
-  }
-}
+// a regra de onde cada ferramenta aparece é pura (testada): fica em shared/ferramentas
+export { modosNaSaida }
 
 interface PropsCamada {
   saidaId: string

@@ -115,6 +115,9 @@ export const CANAIS = {
   estadoWhisper: 'transcricao:whisper-estado',
   instalarWhisper: 'transcricao:whisper-instalar',
   testarWhisper: 'transcricao:whisper-testar',
+  // conversor de vídeo (ffmpeg novo, para os vídeos pesados)
+  estadoConversor: 'conversor:estado',
+  instalarConversor: 'conversor:instalar',
   // janelas internas
   sondaPedido: 'sonda:pedido',
   sondaResultado: 'sonda:resultado',
@@ -123,6 +126,21 @@ export const CANAIS = {
   escutaAudio: 'escuta:audio',
   escutaStatus: 'escuta:status',
 } as const
+
+/** O conversor de vídeo (ffmpeg) que o programa está usando. */
+export interface EstadoConversor {
+  /** caminho do ffmpeg em uso (null = nenhum) */
+  caminho: string | null
+  /** o de 2014 do Holyrics: não lê AV1 */
+  antigo: boolean
+  /** o conversor novo já foi baixado */
+  novoInstalado: boolean
+  /** versão e tamanho do que o botão baixa */
+  versaoNova: string
+  megasNova: number
+  /** vídeos da biblioteca que pesam para este computador e ainda não foram convertidos */
+  pesados: number
+}
 
 /** O que a janela de escuta recebe: o microfone a abrir (null = fechar). */
 export interface PedidoEscuta {
@@ -266,6 +284,11 @@ export interface ApiSonoplastia {
   instalarWhisper(): Promise<InstalacaoWhisper>
   /** mede quanto uma frase leva neste computador */
   testarWhisper(): Promise<ResultadoTeste>
+
+  /** qual ffmpeg o programa usa e se o conversor novo (que lê AV1) está instalado */
+  estadoConversor(): Promise<EstadoConversor>
+  /** baixa e confere o conversor novo (andamento por `aoProgresso`, tarefa 'ffmpeg'); depois converte os vídeos pesados */
+  instalarConversor(): Promise<EstadoConversor>
 
   /** só a janela-sonda usa */
   aoPedidoSonda(cb: (p: PedidoSonda) => void): () => void

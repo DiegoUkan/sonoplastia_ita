@@ -26,6 +26,8 @@ export const caminhos = {
   logs: join(base, 'logs'),
   /** transcrição local: bin\whisper-server.exe e modelos\*.bin (baixados pelas Configurações) */
   whisper: join(base, 'whisper'),
+  /** conversor de vídeo novo (ffmpeg.exe, baixado pelas Configurações → Vídeos e som) */
+  ffmpeg: join(base, 'ffmpeg'),
 }
 
 export function garantirPastas(): void {
